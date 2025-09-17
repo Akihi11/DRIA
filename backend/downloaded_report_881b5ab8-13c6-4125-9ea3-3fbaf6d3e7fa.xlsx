@@ -1,0 +1,23 @@
+
+Mock Excel Report Generated at 2025-09-17 19:41:56.946717
+
+Configuration:
+- Source File ID: e9ee4dc1-65c8-4087-af30-2d0e35f8aa69
+- Sections: ['stableState', 'functionalCalc']
+
+Report Contents:
+
+=== 稳定状态参数汇总表 ===
+时间段          | Ng(rpm)    | Temperature(°C)
+2023-01-01 10:00-10:30 | 15234.5   | 650.2
+2023-01-01 10:45-11:15 | 15187.3   | 648.9
+2023-01-01 11:30-12:00 | 15298.7   | 652.1
+
+
+=== 功能计算汇总表 ===
+指标名称    | 计算结果
+时间基准    | 45.2秒
+启动时间    | 12.8秒  
+点火时间    | 3.5秒
+Ng余转时间  | 28.7秒
+
