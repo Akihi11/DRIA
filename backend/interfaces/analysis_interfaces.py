@@ -4,8 +4,12 @@ Analysis engine interfaces - abstract base classes for data analysis and report 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 
-from ..models.data_models import ChannelData, AnalysisResult, ReportData
-from ..models.report_config import ReportConfig
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
+from models.data_models import ChannelData, AnalysisResult, ReportData
+from models.report_config import ReportConfig
 
 
 class Analyzer(ABC):

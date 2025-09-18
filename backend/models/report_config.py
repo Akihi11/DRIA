@@ -7,8 +7,9 @@ from pydantic import BaseModel, Field
 
 class ConditionConfig(BaseModel):
     """稳定状态筛选条件配置"""
+    type: Optional[str] = Field(None, description="条件类型")
     channel: str = Field(..., description="通道名称")
-    statistic: Literal["最大值", "最小值", "平均值", "有效值"] = Field(..., description="统计量类型")
+    statistic: Optional[Literal["最大值", "最小值", "平均值", "有效值"]] = Field(None, description="统计量类型")
     duration: float = Field(..., description="持续时间（秒）")
     logic: Literal[">", "<"] = Field(..., description="逻辑判断符")
     threshold: float = Field(..., description="阈值")
@@ -17,7 +18,9 @@ class ConditionConfig(BaseModel):
 class StableStateConfig(BaseModel):
     """稳定状态参数汇总表配置"""
     display_channels: List[str] = Field(..., alias="displayChannels", description="需要显示的通道列表")
-    condition: ConditionConfig = Field(..., description="稳定状态筛选条件")
+    condition_logic: Optional[str] = Field(None, alias="conditionLogic", description="条件逻辑")
+    conditions: Optional[List[ConditionConfig]] = Field(None, description="稳定状态筛选条件列表")
+    condition: Optional[ConditionConfig] = Field(None, description="单个稳定状态筛选条件（向后兼容）")
 
 
 class TimeBaseConfig(BaseModel):
@@ -41,14 +44,17 @@ class StartupTimeConfig(BaseModel):
 class IgnitionTimeConfig(BaseModel):
     """点火时间配置"""
     channel: str = Field(..., description="通道名称")
+    type: Optional[str] = Field(None, description="类型")
     duration: float = Field(..., description="持续时间（秒）")
-    logic: Literal["突变>", "突变<"] = Field(..., description="突变逻辑")
+    logic: Literal["突变>", "突变<", ">", "<"] = Field(..., description="突变逻辑")
     threshold: float = Field(..., description="突变阈值")
 
 
 class RundownNgConfig(BaseModel):
     """Ng余转时间配置"""
     channel: str = Field(..., description="通道名称")
+    statistic: Optional[str] = Field(None, description="统计量类型")
+    duration: Optional[float] = Field(None, description="持续时间（秒）")
     threshold1: float = Field(..., description="第一阈值")
     threshold2: float = Field(..., description="第二阈值")
 
@@ -59,14 +65,31 @@ class FunctionalCalcConfig(BaseModel):
     startup_time: Optional[StartupTimeConfig] = None
     ignition_time: Optional[IgnitionTimeConfig] = None
     rundown_ng: Optional[RundownNgConfig] = None
+    rundown_np: Optional[RundownNgConfig] = None
+
+
+class StatusCondition(BaseModel):
+    """状态评估条件"""
+    channel: str = Field(..., description="通道名称")
+    statistic: Optional[str] = Field(None, description="统计量类型")
+    type: Optional[str] = Field(None, description="条件类型")
+    duration: Optional[float] = Field(None, description="持续时间（秒）")
+    logic: Literal[">", "<"] = Field(..., description="逻辑判断符")
+    threshold: float = Field(..., description="阈值")
 
 
 class EvaluationConfig(BaseModel):
     """状态评估项配置"""
     item: str = Field(..., description="评估项名称")
+    type: Optional[str] = Field(None, description="评估类型")
+    source: Optional[str] = Field(None, description="数据源")
     channel: Optional[str] = Field(None, description="通道名称（可选）")
-    logic: Literal[">", "<"] = Field(..., description="逻辑判断符")
-    threshold: float = Field(..., description="阈值")
+    condition_logic: Optional[str] = Field(None, alias="conditionLogic", description="条件逻辑")
+    conditions: Optional[List[StatusCondition]] = Field(None, description="条件列表")
+    condition: Optional[StatusCondition] = Field(None, description="单个条件")
+    logic: Optional[Literal[">", "<"]] = Field(None, description="逻辑判断符")
+    threshold: Optional[float] = Field(None, description="阈值")
+    expected: Optional[str] = Field(None, description="期望结果")
 
 
 class StatusEvalConfig(BaseModel):
@@ -90,4 +113,4 @@ class ReportConfig(BaseModel):
     report_config: ReportConfigData = Field(..., alias="reportConfig", description="报表配置数据")
     
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True

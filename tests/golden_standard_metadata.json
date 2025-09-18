@@ -1,0 +1,70 @@
+{
+  "report_id": "report_20250918_161329",
+  "source_file_id": "D:\\PythonCode\\DRIA\\samples\\Simulated_Data.csv",
+  "generation_time": "2025-09-18T16:13:29.425566",
+  "file_metadata": {
+    "filename": "Simulated_Data.csv",
+    "file_size": 1207178,
+    "total_samples": 12000,
+    "duration_seconds": 119.99,
+    "sample_rate": 100.00833402783566,
+    "channels_count": 6,
+    "channels": [
+      "系统电流",
+      "系统电压",
+      "滑油压力",
+      "排气温度",
+      "Ng",
+      "Np"
+    ],
+    "file_format": ".csv",
+    "created_time": "2025-09-03T20:51:19.724308",
+    "time_range": {
+      "start": 0.0,
+      "end": 119.99
+    }
+  },
+  "channel_mapping": {
+    "Pressure(kPa)": "滑油压力",
+    "Temperature(°C)": "排气温度",
+    "Np(rpm)": "Np",
+    "Ng(rpm)": "Ng"
+  },
+  "available_channels": [
+    "系统电流",
+    "系统电压",
+    "滑油压力",
+    "排气温度",
+    "Ng",
+    "Np"
+  ],
+  "channels_read": [
+    "滑油压力",
+    "排气温度",
+    "Np",
+    "Ng"
+  ],
+  "data_points_per_channel": {
+    "滑油压力": 12000,
+    "排气温度": 12000,
+    "Np": 12000,
+    "Ng": 12000
+  },
+  "results_summary": {
+    "stable_state": {
+      "total_stable_time": 0.0,
+      "stable_periods_count": 0
+    },
+    "functional_calc": {
+      "time_base": 9.49,
+      "startup_time": null,
+      "ignition_time": 9.99,
+      "rundown_ng": 0.99
+    },
+    "status_eval": {
+      "overall_status": "存在异常",
+      "evaluations_count": 5,
+      "warnings_count": 3
+    }
+  }
+}

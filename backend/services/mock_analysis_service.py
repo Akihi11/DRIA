@@ -5,12 +5,16 @@ from typing import List, Dict, Any
 from datetime import datetime
 import random
 
-from ..interfaces.analysis_interfaces import (
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
+from interfaces.analysis_interfaces import (
     ReportCalculationEngine, Analyzer, StableStateAnalyzer, 
     FunctionalAnalyzer, StatusEvaluator
 )
-from ..models.data_models import ChannelData, AnalysisResult, ReportData
-from ..models.report_config import ReportConfig
+from models.data_models import ChannelData, AnalysisResult, ReportData
+from models.report_config import ReportConfig
 
 
 class MockStableStateAnalyzer(StableStateAnalyzer):

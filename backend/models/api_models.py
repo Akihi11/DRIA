@@ -58,6 +58,7 @@ class ReportGenerationRequest(BaseModel):
     session_id: str = Field(..., description="会话ID")
     file_id: str = Field(..., description="源文件ID")
     config: Dict[str, Any] = Field(..., description="报表配置")
+    report_type: Optional[str] = Field("api_generated", description="报表类型 (api_generated, test_reports, manual_reports, etc.)")
 
 
 class ReportGenerationResponse(BaseModel):

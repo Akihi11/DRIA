@@ -124,6 +124,7 @@ def test_report_generation(file_id):
     report_config = {
         "session_id": "test_session_direct",
         "file_id": file_id,
+        "report_type": "test_reports",  # 指定为测试报表
         "config": {
             "sourceFileId": file_id,
             "reportConfig": {

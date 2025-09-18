@@ -5,9 +5,13 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
 
-from ..interfaces.dialogue_interfaces import DialogueManager, NluProcessor, RuleProvider
-from ..models.api_models import DialogueRequest, DialogueResponse, DialogueState
-from ..models.report_config import ReportConfig
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
+from interfaces.dialogue_interfaces import DialogueManager, NluProcessor, RuleProvider
+from models.api_models import DialogueRequest, DialogueResponse, DialogueState
+from models.report_config import ReportConfig
 
 
 class MockNluProcessor(NluProcessor):

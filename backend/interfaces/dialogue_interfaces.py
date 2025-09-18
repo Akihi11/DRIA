@@ -4,8 +4,12 @@ Dialogue management interfaces - abstract base classes for AI conversation handl
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
 
-from ..models.api_models import DialogueRequest, DialogueResponse
-from ..models.report_config import ReportConfig
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
+from models.api_models import DialogueRequest, DialogueResponse
+from models.report_config import ReportConfig
 
 
 class NluProcessor(ABC):

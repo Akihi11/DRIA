@@ -5,7 +5,11 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 from pathlib import Path
 
-from ..models.data_models import ChannelData, ReportData
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
+from models.data_models import ChannelData, ReportData
 
 
 class DataReader(ABC):
