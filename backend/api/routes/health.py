@@ -11,7 +11,7 @@ current_dir = Path(__file__).parent
 parent_dir = current_dir.parent.parent
 sys.path.insert(0, str(parent_dir))
 
-from models.api_models import HealthCheckResponse
+from backend.models.api_models import HealthCheckResponse
 
 router = APIRouter()
 

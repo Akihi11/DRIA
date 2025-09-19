@@ -1,0 +1,107 @@
+.App {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Layout styles */
+.main-layout {
+  height: 100vh;
+}
+
+.main-header {
+  background: #001529;
+  padding: 0 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.main-content {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  height: 100%;
+}
+
+/* Header styles */
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+}
+
+.logo {
+  color: white;
+  font-size: 24px;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+.logo:hover {
+  color: #1890ff;
+}
+
+/* Navigation styles */
+.nav-menu {
+  background: transparent;
+  border-bottom: none;
+}
+
+.nav-menu .ant-menu-item {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.nav-menu .ant-menu-item:hover {
+  color: #1890ff;
+}
+
+.nav-menu .ant-menu-item-selected {
+  color: #1890ff;
+  background-color: rgba(24, 144, 255, 0.1);
+}
+
+/* Content area styles */
+.content-area {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Loading and error states */
+.loading-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+}
+
+.error-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: #ff4d4f;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .main-content {
+    padding: 16px;
+  }
+  
+  .header-content {
+    padding: 0 16px;
+  }
+  
+  .logo {
+    font-size: 20px;
+  }
+}

@@ -13,12 +13,16 @@ current_dir = Path(__file__).parent
 parent_dir = current_dir.parent.parent
 sys.path.insert(0, str(parent_dir))
 
-from models.api_models import DialogueRequest, DialogueResponse, DialogueState, ErrorResponse
+from backend.models.api_models import DialogueRequest, DialogueResponse, DialogueState, ErrorResponse
+from backend.services import DialogueManager, NluProcessor, RuleProvider, DIALOGUE_IMPLEMENTATION_TYPE
 
 router = APIRouter()
 
-# Mock session storage (in production, use Redis or database)
-mock_sessions: Dict[str, Dict[str, Any]] = {}
+# Initialize dialogue service
+dialogue_manager = DialogueManager()
+
+# Log implementation type
+print(f"[INFO] Dialogue API using {DIALOGUE_IMPLEMENTATION_TYPE} implementation")
 
 
 @router.post("/ai_report/dialogue", response_model=DialogueResponse, summary="AI对话接口")
@@ -35,50 +39,19 @@ async def process_dialogue(request: DialogueRequest):
     """
     
     try:
-        # Initialize session if not exists
-        if request.session_id not in mock_sessions:
-            mock_sessions[request.session_id] = {
-                "state": DialogueState.INITIAL,
-                "file_id": request.file_id,
-                "config": {},
-                "message_history": [],
-                "created_at": datetime.now().isoformat()
-            }
-        
-        session = mock_sessions[request.session_id]
-        session["message_history"].append({
-            "role": "user",
-            "content": request.user_input,
-            "timestamp": datetime.now().isoformat()
-        })
-        
-        # Mock AI response based on dialogue state
-        ai_response, quick_choices, new_state, is_complete, report_url = await generate_mock_response(
-            request, session
-        )
-        
-        # Update session
-        session["state"] = new_state
-        session["message_history"].append({
-            "role": "assistant",
-            "content": ai_response,
-            "timestamp": datetime.now().isoformat()
-        })
-        
-        return DialogueResponse(
-            session_id=request.session_id,
-            ai_response=ai_response,
-            quick_choices=quick_choices,
-            dialogue_state=new_state,
-            is_complete=is_complete,
-            report_url=report_url
-        )
+        # Use real dialogue manager to process the request
+        response = dialogue_manager.process(request)
+        return response
         
     except Exception as e:
+        import traceback
+        print(f"[ERROR] Dialogue API Error: {e}")
+        print(traceback.format_exc())
         return DialogueResponse(
             session_id=request.session_id,
             ai_response="抱歉，处理您的请求时出现了错误。请稍后重试。",
             dialogue_state=DialogueState.ERROR,
+            suggested_actions=["请重新开始对话"],
             is_complete=False,
             error_message=str(e)
         )

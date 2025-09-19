@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from models.data_models import ChannelData, AnalysisResult, ReportData
-from models.report_config import ReportConfig
+from backend.models.data_models import ChannelData, AnalysisResult, ReportData
+from backend.models.report_config import ReportConfig
 
 
 class Analyzer(ABC):

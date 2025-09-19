@@ -11,14 +11,14 @@ import sys
 import os
 from pathlib import Path
 
-# 添加父目录到Python路径以支持相对导入
-current_dir = Path(__file__).parent
-parent_dir = current_dir.parent
-sys.path.insert(0, str(parent_dir))
+# 确保可以从项目根目录导入
+project_root = Path(__file__).parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
-from config import settings
-from models.api_models import ErrorResponse
-from .routes import dialogue, file_upload, report_generation, health
+from backend.config import settings
+from backend.models.api_models import ErrorResponse
+from backend.api.routes import dialogue, file_upload, report_generation, health
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL))
@@ -130,9 +130,23 @@ async def startup_event():
     """Application startup event"""
     logger.info("AI Report Generation API starting up (Python 3.12 compatible)...")
     logger.info(f"Python version: {sys.version}")
+    logger.info(f"Current working directory: {os.getcwd()}")
+    
+    # 确保目录存在
+    settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    settings.REPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    (settings.REPORT_OUTPUT_DIR / "api_generated").mkdir(parents=True, exist_ok=True)
+    
     logger.info(f"Debug mode: {settings.DEBUG}")
     logger.info(f"Upload directory: {settings.UPLOAD_DIR}")
+    logger.info(f"Upload directory exists: {settings.UPLOAD_DIR.exists()}")
     logger.info(f"Report output directory: {settings.REPORT_OUTPUT_DIR}")
+    logger.info(f"Report output directory exists: {settings.REPORT_OUTPUT_DIR.exists()}")
+    
+    # 加载默认示例报表
+    logger.info("Loading default sample report...")
+    from backend.api.routes.report_generation import load_default_sample_report
+    load_default_sample_report()
 
 
 @app.on_event("shutdown")

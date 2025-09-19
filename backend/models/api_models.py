@@ -36,7 +36,8 @@ class DialogueResponse(BaseModel):
     """对话响应模型"""
     session_id: str = Field(..., description="会话ID")
     ai_response: str = Field(..., description="AI回复内容")
-    quick_choices: Optional[List[str]] = Field(None, description="快速选择选项")
+    quick_choices: Optional[List[str]] = Field(None, description="快速选择选项（已弃用，使用suggested_actions）")
+    suggested_actions: Optional[List[str]] = Field(None, description="建议操作列表")
     dialogue_state: DialogueState = Field(..., description="更新后的对话状态")
     is_complete: bool = Field(False, description="对话是否完成")
     report_url: Optional[str] = Field(None, description="生成的报表下载链接")
@@ -49,7 +50,7 @@ class FileUploadResponse(BaseModel):
     filename: str = Field(..., description="文件名")
     file_size: int = Field(..., description="文件大小（字节）")
     upload_time: str = Field(..., description="上传时间")
-    detected_channels: List[str] = Field(..., description="检测到的通道列表")
+    available_channels: List[str] = Field(..., description="可用的通道列表")
     preview_data: Optional[Dict[str, Any]] = Field(None, description="数据预览")
 
 

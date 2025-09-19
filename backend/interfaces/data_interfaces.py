@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from models.data_models import ChannelData, ReportData
+from backend.models.data_models import ChannelData, ReportData
 
 
 class DataReader(ABC):

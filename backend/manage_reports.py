@@ -16,7 +16,7 @@ import json
 import sys
 sys.path.append(str(Path(__file__).parent))
 
-from config import settings
+from backend.config import settings
 
 class ReportManager:
     """报表管理器"""

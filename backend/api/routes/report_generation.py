@@ -15,16 +15,46 @@ current_dir = Path(__file__).parent
 parent_dir = current_dir.parent.parent
 sys.path.insert(0, str(parent_dir))
 
-from config import settings
-from models.api_models import ReportGenerationRequest, ReportGenerationResponse
-from models.report_config import ReportConfig
-from services import DataReader, ReportWriter, ReportCalculationEngine, IMPLEMENTATION_TYPE
+from backend.config import settings
+from backend.models.api_models import ReportGenerationRequest, ReportGenerationResponse
+from backend.models.report_config import ReportConfig
+from backend.services import DataReader, ReportWriter, ReportCalculationEngine, IMPLEMENTATION_TYPE
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # Report storage
 reports_storage: Dict[str, Dict[str, Any]] = {}
+
+def load_default_sample_report():
+    """
+    加载默认示例报表到内存存储
+    这样用户即使没有生成报表，也能看到系统功能
+    """
+    sample_report_id = "00000000-0000-0000-0000-000000000001"
+    sample_report_path = settings.REPORT_OUTPUT_DIR / "api_generated" / f"report_{sample_report_id}.xlsx"
+    
+    if sample_report_path.exists() and sample_report_id not in reports_storage:
+        reports_storage[sample_report_id] = {
+            "session_id": "sample-session",
+            "file_id": "sample-data",
+            "report_path": str(sample_report_path),
+            "generation_time": datetime.now().isoformat(),
+            "file_size": sample_report_path.stat().st_size,
+            "channels_processed": 5,
+            "implementation_type": "SAMPLE",
+            "is_sample": True,
+            "description": "系统示例报表 - 展示报表功能"
+        }
+        logger.info(f"[OK] 已加载默认示例报表: {sample_report_id}")
+        return True
+    elif sample_report_id in reports_storage:
+        logger.info("[INFO] 默认示例报表已存在，跳过加载")
+        return True
+    else:
+        logger.warning(f"[WARN] 默认示例报表文件不存在: {sample_report_path}")
+        logger.info("[INFO] 运行以下命令创建示例报表: python backend/utils/create_sample_report.py")
+        return False
 
 
 @router.post("/reports/generate", response_model=ReportGenerationResponse, summary="生成报表")
@@ -117,12 +147,9 @@ async def generate_report(request: ReportGenerationRequest, background_tasks: Ba
             logger.info(f"Report generated successfully: {report_data.report_id}")
         except Exception as e:
             logger.error(f"Error in report calculation: {e}")
-            # For demo, continue with partial results
-            from models.data_models import ReportData
-            report_data = ReportData(
-                report_id=report_id,
-                source_file_id=request.file_id,
-                generation_time=datetime.now()
+            raise HTTPException(
+                status_code=500,
+                detail=f"报表计算失败: {str(e)}"
             )
         
         # Step 3: Write Excel report to appropriate subdirectory

@@ -37,8 +37,40 @@ except ImportError as e:
     IMPLEMENTATION_TYPE = "MOCK"
     print(f"Warning: Using mock implementations due to missing dependencies: {e}")
 
-# Import dialogue services (always use mock for now)
-from .mock_dialogue_service import MockDialogueManager, MockNluProcessor, MockRuleProvider
+# Import dialogue services - Phase 3: Use Real Implementation
+try:
+    from .real_dialogue_service import RealDialogueManager
+    from .real_nlu_processor import RealNluProcessor
+    from .real_rule_provider import RealRuleProvider
+
+    # Use real dialogue implementations
+    DialogueManager = RealDialogueManager
+    NluProcessor = RealNluProcessor
+    RuleProvider = RealRuleProvider
+
+    DIALOGUE_IMPLEMENTATION_TYPE = "REAL_ENHANCED"
+
+except ImportError as e:
+    try:
+        # Fallback to basic real implementations
+        from .real_dialogue_service import RealDialogueManager, RealNluProcessor, RealRuleProvider
+
+        DialogueManager = RealDialogueManager
+        NluProcessor = RealNluProcessor
+        RuleProvider = RealRuleProvider
+
+        DIALOGUE_IMPLEMENTATION_TYPE = "REAL_BASIC"
+
+    except ImportError as e2:
+        # Final fallback to mock implementations
+        from .mock_dialogue_service import MockDialogueManager, MockNluProcessor, MockRuleProvider
+
+        DialogueManager = MockDialogueManager
+        NluProcessor = MockNluProcessor
+        RuleProvider = MockRuleProvider
+
+        DIALOGUE_IMPLEMENTATION_TYPE = "MOCK"
+        print(f"Warning: Using mock dialogue implementations due to: {e2}")
 
 __all__ = [
     # Data Services (Real or Mock)
@@ -49,10 +81,10 @@ __all__ = [
     "StableStateAnalyzer",
     "ReportCalculationEngine",
     
-    # Dialogue Services (Mock)
-    "MockDialogueManager",
-    "MockNluProcessor", 
-    "MockRuleProvider",
+    # Dialogue Services (Real or Mock)
+    "DialogueManager",
+    "NluProcessor", 
+    "RuleProvider",
     
     # Implementation info
     "IMPLEMENTATION_TYPE"

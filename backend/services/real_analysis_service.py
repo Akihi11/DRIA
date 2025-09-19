@@ -494,6 +494,10 @@ class RealStatusEvaluator(StatusEvaluator):
     Implements status evaluation according to task specifications
     """
     
+    def __init__(self):
+        """Initialize evaluator with storage for functional results"""
+        self.functional_results = {}
+    
     def analyze(self, data: List[ChannelData], config: Dict[str, Any]) -> AnalysisResult:
         """Analyze status evaluation"""
         try:
@@ -508,6 +512,10 @@ class RealStatusEvaluator(StatusEvaluator):
         except Exception as e:
             logger.error(f"Error in status evaluation: {e}")
             raise
+    
+    def set_functional_results(self, functional_results: Dict[str, Any]) -> None:
+        """Set functional calculation results for evaluation"""
+        self.functional_results = functional_results or {}
     
     def evaluate_status(self, data: List[ChannelData], config: Dict[str, Any]) -> Dict[str, Any]:
         """Evaluate all status items based on configuration"""
@@ -560,20 +568,66 @@ class RealStatusEvaluator(StatusEvaluator):
     def _evaluate_functional_result(self, eval_config: Dict[str, Any]) -> Dict[str, Any]:
         """Evaluate based on functional calculation results"""
         item_name = eval_config['item']
-        source = eval_config['source']
-        logic = eval_config['logic']
+        source = eval_config['source']  # e.g., "time_base", "startup_time", "ignition_time"
+        logic = eval_config['logic']  # e.g., ">", "<", ">=", "<=", "==", "!="
         threshold = eval_config['threshold']
         
-        # This would need access to functional calculation results
-        # For now, return a placeholder
-        # In real implementation, this would check against stored functional results
+        # Get the functional result value
+        if source not in self.functional_results:
+            return {
+                'item': item_name,
+                'result': '无数据',
+                'status': '?',
+                'details': f"未找到功能计算结果 {source}"
+            }
         
-        return {
-            'item': item_name,
-            'result': '正常',  # Placeholder
-            'status': '✓',
-            'details': f"基于功能计算结果 {source} 的评估"
-        }
+        result_value = self.functional_results[source]
+        
+        # If result is None, evaluation failed
+        if result_value is None:
+            return {
+                'item': item_name,
+                'result': '无法计算',
+                'status': '?',
+                'details': f"{source} 计算失败"
+            }
+        
+        # Perform comparison
+        try:
+            if logic == '>':
+                passes = result_value > threshold
+            elif logic == '<':
+                passes = result_value < threshold
+            elif logic == '>=':
+                passes = result_value >= threshold
+            elif logic == '<=':
+                passes = result_value <= threshold
+            elif logic == '==':
+                passes = abs(result_value - threshold) < 1e-6
+            elif logic == '!=':
+                passes = abs(result_value - threshold) >= 1e-6
+            else:
+                raise ValueError(f"Unknown logic operator: {logic}")
+            
+            result = '正常' if passes else '异常'
+            status = '✓' if passes else '✗'
+            details = f"{source}={result_value:.2f}, 阈值{logic}{threshold}, 结果: {result}"
+            
+            return {
+                'item': item_name,
+                'result': result,
+                'status': status,
+                'details': details
+            }
+            
+        except Exception as e:
+            logger.error(f"Error evaluating functional result {source}: {e}")
+            return {
+                'item': item_name,
+                'result': '评估失败',
+                'status': '✗',
+                'details': f"评估出错: {str(e)}"
+            }
     
     def _evaluate_continuous_check(self, data_dict: Dict[str, ChannelData], eval_config: Dict[str, Any]) -> Dict[str, Any]:
         """Evaluate continuous conditions throughout the data"""
@@ -811,6 +865,17 @@ class RealReportCalculationEngine(ReportCalculationEngine):
             # Execute status evaluation
             if "statusEval" in sections and full_config.report_config.status_eval:
                 self.logger.info("Starting status evaluation...")
+                
+                # Pass functional results to status evaluator if available
+                if report_data.functional_calc_result:
+                    functional_results = {
+                        "time_base": report_data.functional_calc_result.time_base,
+                        "startup_time": report_data.functional_calc_result.startup_time,
+                        "ignition_time": report_data.functional_calc_result.ignition_time,
+                        "rundown_ng": report_data.functional_calc_result.rundown_ng
+                    }
+                    self.analyzers["status_eval"].set_functional_results(functional_results)
+                
                 eval_result = self.analyzers["status_eval"].analyze(
                     processed_data,
                     full_config.report_config.status_eval.model_dump()

@@ -10,14 +10,16 @@ from pathlib import Path
 from typing import List
 import sys
 import os
+import numpy as np
 
 # 添加父目录到Python路径以支持相对导入
 current_dir = Path(__file__).parent
 parent_dir = current_dir.parent.parent
 sys.path.insert(0, str(parent_dir))
 
-from config import settings
-from models.api_models import FileUploadResponse, ErrorResponse
+from backend.config import settings
+from backend.models.api_models import FileUploadResponse, ErrorResponse
+from backend.services.real_data_service import RealDataReader
 
 router = APIRouter()
 
@@ -62,34 +64,65 @@ async def upload_file(file: UploadFile = File(...)):
         # Generate unique file ID
         file_id = str(uuid.uuid4())
         
-        # Create file path
+        # Create file path - 确保使用绝对路径
         file_extension = Path(file.filename).suffix
         stored_filename = f"{file_id}{file_extension}"
-        file_path = settings.UPLOAD_DIR / stored_filename
+        
+        # 强制使用字符串绝对路径
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        upload_dir = settings.UPLOAD_DIR
+        logger.info(f"DEBUG: upload_dir = {upload_dir}, type = {type(upload_dir)}")
+        logger.info(f"DEBUG: upload_dir.exists() = {upload_dir.exists()}")
+        logger.info(f"DEBUG: Current working directory = {os.getcwd()}")
+        
+        # 构造完整的文件路径并转换为字符串
+        file_path = str((upload_dir / stored_filename).absolute())
+        logger.info(f"DEBUG: file_path (string) = {file_path}")
+        logger.info(f"DEBUG: file_path type = {type(file_path)}")
+        logger.info(f"DEBUG: Parent dir exists = {Path(file_path).parent.exists()}")
         
         # Save file
+        logger.info(f"DEBUG: About to open file for writing: {file_path}")
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+        logger.info(f"DEBUG: File saved successfully")
         
-        # Mock channel detection (in real implementation, this would analyze the file)
-        detected_channels = [
-            "Ng(rpm)",
-            "Temperature(°C)", 
-            "Pressure(kPa)",
-            "Fuel_Flow(kg/h)",
-            "Vibration(mm/s)"
-        ]
+        # 转回Path对象用于后续操作
+        file_path = Path(file_path)
         
-        # Mock preview data
+        # Use real data reader to detect channels and extract metadata
+        data_reader = RealDataReader()
+        
+        # Get available channels from the actual file
+        detected_channels = data_reader.get_available_channels(str(file_path))
+        
+        # Get file metadata
+        metadata = data_reader.get_file_metadata(str(file_path))
+        
+        # Read first few rows for preview (limit to first 3 rows and 5 channels)
+        preview_channels = detected_channels[:5] if len(detected_channels) > 5 else detected_channels
+        try:
+            channel_data = data_reader.read(str(file_path), preview_channels)
+            first_few_rows = []
+            if channel_data and len(channel_data[0].values) > 0:
+                # Get first 3 data points
+                for i in range(min(3, len(channel_data[0].values))):
+                    row_data = {"timestamp": channel_data[0].timestamps[i] if channel_data[0].timestamps else i * 0.03}
+                    for ch in channel_data:
+                        row_data[ch.channel_name] = float(ch.values[i])
+                    first_few_rows.append(row_data)
+        except Exception as e:
+            # If preview fails, just use empty preview
+            first_few_rows = []
+        
+        # Build preview data
         preview_data = {
-            "total_rows": 10000,
-            "duration_seconds": 300.5,
-            "sample_rate": 33.3,
-            "first_few_rows": [
-                {"timestamp": 0.0, "Ng(rpm)": 15234, "Temperature(°C)": 650.2},
-                {"timestamp": 0.03, "Ng(rpm)": 15241, "Temperature(°C)": 650.5},
-                {"timestamp": 0.06, "Ng(rpm)": 15238, "Temperature(°C)": 650.1}
-            ]
+            "total_rows": metadata.get("total_rows", 0),
+            "duration_seconds": metadata.get("duration_seconds", 0.0),
+            "sample_rate": metadata.get("sample_rate", 0.0),
+            "first_few_rows": first_few_rows
         }
         
         return FileUploadResponse(
@@ -97,7 +130,7 @@ async def upload_file(file: UploadFile = File(...)):
             filename=file.filename,
             file_size=file_path.stat().st_size,
             upload_time=datetime.now().isoformat(),
-            detected_channels=detected_channels,
+            available_channels=detected_channels,
             preview_data=preview_data
         )
         
@@ -111,44 +144,76 @@ async def upload_file(file: UploadFile = File(...)):
 @router.get("/files/{file_id}/channels", summary="获取文件通道信息")
 async def get_file_channels(file_id: str):
     """
-    获取指定文件的通道信息
+    获取指定文件的通道信息（包含统计数据）
     
     - **file_id**: 文件ID
+    
+    返回每个通道的统计信息：最小值、最大值、平均值、样本数等
     """
     
-    # Mock implementation - in reality, this would read the actual file
-    return {
-        "file_id": file_id,
-        "channels": [
-            {
-                "name": "Ng(rpm)",
-                "unit": "rpm",
-                "data_type": "numeric",
-                "sample_count": 10000,
-                "min_value": 1000.0,
-                "max_value": 16000.0,
-                "avg_value": 12500.5
-            },
-            {
-                "name": "Temperature(°C)",
-                "unit": "°C", 
-                "data_type": "numeric",
-                "sample_count": 10000,
-                "min_value": 15.2,
-                "max_value": 850.7,
-                "avg_value": 425.3
-            },
-            {
-                "name": "Pressure(kPa)",
-                "unit": "kPa",
-                "data_type": "numeric", 
-                "sample_count": 10000,
-                "min_value": 0.0,
-                "max_value": 1200.0,
-                "avg_value": 600.0
+    try:
+        # 1. 查找上传的文件
+        file_path = None
+        for path in settings.UPLOAD_DIR.glob(f"{file_id}.*"):
+            file_path = path
+            break
+        
+        if not file_path or not file_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"文件 {file_id} 不存在"
+            )
+        
+        # 2. 使用真实数据读取器
+        data_reader = RealDataReader()
+        
+        # 3. 获取所有通道名称
+        channel_names = data_reader.get_available_channels(str(file_path))
+        
+        if not channel_names:
+            return {
+                "file_id": file_id,
+                "channels": []
             }
-        ]
-    }
+        
+        # 4. 读取所有通道数据
+        channel_data_list = data_reader.read(str(file_path), channel_names)
+        
+        # 5. 计算每个通道的统计量
+        channels_info = []
+        for channel_data in channel_data_list:
+            values = np.array([point.value for point in channel_data.data_points])
+            
+            # 过滤掉 NaN 和 Inf 值
+            values = values[np.isfinite(values)]
+            
+            if len(values) == 0:
+                # 如果没有有效数据，跳过该通道
+                continue
+            
+            channels_info.append({
+                "name": channel_data.channel_name,
+                "unit": channel_data.unit,
+                "data_type": "numeric",
+                "sample_count": len(values),
+                "min_value": float(np.min(values)),
+                "max_value": float(np.max(values)),
+                "avg_value": float(np.mean(values)),
+                "std_value": float(np.std(values))
+            })
+        
+        return {
+            "file_id": file_id,
+            "channels": channels_info
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"获取文件通道信息失败: {str(e)}"
+        )
 
 
 @router.delete("/files/{file_id}", summary="删除文件")
@@ -160,16 +225,25 @@ async def delete_file(file_id: str):
     """
     
     try:
-        # Find and delete file (mock implementation)
-        # In reality, you'd search for the file by ID and delete it
+        # 查找上传的文件
+        file_path = None
+        for path in settings.UPLOAD_DIR.glob(f"{file_id}.*"):
+            file_path = path
+            break
+        
+        if not file_path or not file_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"文件 {file_id} 不存在"
+            )
+        
+        # 删除文件
+        file_path.unlink()
         
         return {"message": f"文件 {file_id} 已成功删除"}
         
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"文件 {file_id} 不存在"
-        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,

@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from models.api_models import DialogueRequest, DialogueResponse
-from models.report_config import ReportConfig
+from backend.models.api_models import DialogueRequest, DialogueResponse
+from backend.models.report_config import ReportConfig
 
 
 class NluProcessor(ABC):
