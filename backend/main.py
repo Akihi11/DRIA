@@ -1,7 +1,10 @@
 """
-Main entry point for the AI Report Generation Backend - Python 3.12 compatible
+Main entry point for the AI Chat Backend - Python 3.12 compatible
 Run this file to start the development server
 """
+
+# 导入app对象
+from api.main import app
 
 if __name__ == "__main__":
     import sys
@@ -21,7 +24,7 @@ if __name__ == "__main__":
     import uvicorn
     from config import settings
     
-    print("[START] Starting AI Report Generation API Server (Python 3.12)...")
+    print("[START] Starting AI Chat API Server (Python 3.12)...")
     print(f"[API] Server will be available at: http://{settings.API_HOST}:{settings.API_PORT}")
     print(f"[DOCS] API Documentation: http://{settings.API_HOST}:{settings.API_PORT}/api/docs")
     print(f"[DEBUG] Debug Mode: {settings.DEBUG}")
@@ -30,11 +33,9 @@ if __name__ == "__main__":
     # 确保工作目录正确
     os.chdir(current_dir)
     print(f"[DIR] Working directory: {os.getcwd()}")
-    print(f"[DIR] Upload directory: {settings.UPLOAD_DIR}")
-    print(f"[DIR] Report directory: {settings.REPORT_OUTPUT_DIR}")
     
     uvicorn.run(
-        "api.main:app",
+        app,
         host=settings.API_HOST,
         port=settings.API_PORT,
         reload=False,  # 禁用reload以避免路径问题

@@ -1,14 +1,9 @@
-import { DialogueState, FileInfo as ApiFileInfo, ReportConfig } from './api'
-
-// Re-export FileInfo for convenience
-export type FileInfo = ApiFileInfo
+import { DialogueState } from './api'
 
 // Store State Types
 export interface AppState {
   ui: UIState
   dialogue: DialogueState
-  file: FileState
-  reports: ReportsState
 }
 
 export interface UIState {
@@ -26,20 +21,6 @@ export interface DialogueStoreState {
   error: string | null
 }
 
-export interface FileState {
-  currentFile: FileInfo | null
-  uploadProgress: number
-  isUploading: boolean
-  error: string | null
-}
-
-export interface ReportsState {
-  reports: ReportItem[]
-  currentReport: ReportItem | null
-  isGenerating: boolean
-  error: string | null
-}
-
 // Message Types
 export interface Message {
   id: string
@@ -50,24 +31,7 @@ export interface Message {
 }
 
 export interface MessageMetadata {
-  fileInfo?: FileInfo
   suggestedActions?: string[]
-  reportConfig?: ReportConfig
-  reportId?: string
-  channelStats?: any // Channel statistics data
-}
-
-// Report Types
-export interface ReportItem {
-  id: string
-  name: string
-  fileId: string
-  fileName: string
-  generatedAt: Date
-  filePath: string
-  config: ReportConfig
-  status: 'generating' | 'completed' | 'failed'
-  error?: string
 }
 
 // Action Types
@@ -93,18 +57,3 @@ export interface DialogueActions {
   clearSession: () => void
 }
 
-export interface FileActions {
-  setCurrentFile: (file: FileInfo | null) => void
-  setUploadProgress: (progress: number) => void
-  setUploading: (uploading: boolean) => void
-  setError: (error: string | null) => void
-}
-
-export interface ReportsActions {
-  addReport: (report: ReportItem) => void
-  updateReport: (id: string, updates: Partial<ReportItem>) => void
-  setCurrentReport: (report: ReportItem | null) => void
-  setGenerating: (generating: boolean) => void
-  setError: (error: string | null) => void
-  deleteReport: (id: string) => void
-}

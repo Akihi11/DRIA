@@ -16,9 +16,9 @@ project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from backend.config import settings
-from backend.models.api_models import ErrorResponse
-from backend.api.routes import dialogue, file_upload, report_generation, health
+from config import settings
+from models.api_models import ErrorResponse
+from api.routes import dialogue, health, config
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL))
@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI application
 app = FastAPI(
-    title="AI Report Generation API",
-    description="智能对话式报表生成系统 API - Python 3.12兼容版本",
+    title="AI Chat API",
+    description="纯对话AI助手 API - 用户与大模型直接对话",
     version="1.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
@@ -45,9 +45,8 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router, prefix="/api", tags=["Health"])
-app.include_router(file_upload.router, prefix="/api", tags=["File Upload"])
 app.include_router(dialogue.router, prefix="/api", tags=["Dialogue"])
-app.include_router(report_generation.router, prefix="/api", tags=["Report Generation"])
+app.include_router(config.router, prefix="/api/config", tags=["Config"])
 
 
 @app.exception_handler(Exception)
@@ -73,30 +72,21 @@ def custom_openapi():
         return app.openapi_schema
     
     openapi_schema = get_openapi(
-        title="AI Report Generation API",
+        title="AI Chat API",
         version="1.0.0",
         description=f"""
-        ## AI对话式报表生成系统API
+        ## AI纯对话助手API
         
         **Python版本**: {sys.version}
         **运行环境**: Python 3.12 兼容模式
         
         本API提供以下核心功能：
         
-        ### 🗂️ 文件管理
-        - 上传数据文件（CSV, Excel）
-        - 文件预分析和通道检测
-        
-        ### 💬 智能对话
-        - AI引导式配置对话
-        - 自然语言参数设置
+        ### 💬 纯对话功能
+        - 用户与大模型直接对话
+        - 智能AI助手响应
         - 多轮对话状态管理
-        
-        ### 📊 报表生成
-        - 稳定状态参数汇总表
-        - 功能计算汇总表  
-        - 状态评估表
-        - Excel文件导出（Mock实现）
+        - 会话管理
         
         ### 系统监控
         - 健康检查
@@ -128,31 +118,31 @@ app.openapi = custom_openapi
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
-    logger.info("AI Report Generation API starting up (Python 3.12 compatible)...")
+    logger.info("AI Chat API starting up (Python 3.12 compatible)...")
     logger.info(f"Python version: {sys.version}")
     logger.info(f"Current working directory: {os.getcwd()}")
     
-    # 确保目录存在
-    settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    settings.REPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    (settings.REPORT_OUTPUT_DIR / "api_generated").mkdir(parents=True, exist_ok=True)
-    
     logger.info(f"Debug mode: {settings.DEBUG}")
-    logger.info(f"Upload directory: {settings.UPLOAD_DIR}")
-    logger.info(f"Upload directory exists: {settings.UPLOAD_DIR.exists()}")
-    logger.info(f"Report output directory: {settings.REPORT_OUTPUT_DIR}")
-    logger.info(f"Report output directory exists: {settings.REPORT_OUTPUT_DIR.exists()}")
     
-    # 加载默认示例报表
-    logger.info("Loading default sample report...")
-    from backend.api.routes.report_generation import load_default_sample_report
-    load_default_sample_report()
+    # 显示配置状态
+    available_providers = settings.get_available_providers()
+    logger.info(f"Default LLM provider: {settings.DEFAULT_LLM_PROVIDER}")
+    logger.info(f"Available providers: {available_providers}")
+    
+    if not available_providers:
+        logger.warning("⚠️  没有可用的LLM提供商！请检查.env配置文件")
+    elif not settings.is_provider_available(settings.DEFAULT_LLM_PROVIDER):
+        logger.warning(f"⚠️  默认提供商 '{settings.DEFAULT_LLM_PROVIDER}' 不可用，将使用: {available_providers[0]}")
+    else:
+        logger.info(f"✅ 默认提供商 '{settings.DEFAULT_LLM_PROVIDER}' 已正确配置")
+    
+    logger.info("AI Chat API ready for pure dialogue conversations")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Application shutdown event"""
-    logger.info("AI Report Generation API shutting down...")
+    logger.info("AI Chat API shutting down...")
 
 
 if __name__ == "__main__":

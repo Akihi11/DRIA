@@ -1,8 +1,7 @@
 """
-API routes module
-Contains all API endpoint definitions
+纯对话API路由模块
 """
 
-from . import dialogue, file_upload, report_generation, health
+from . import dialogue, health
 
-__all__ = ["dialogue", "file_upload", "report_generation", "health"]
+__all__ = ["dialogue", "health"]
