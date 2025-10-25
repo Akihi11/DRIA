@@ -210,17 +210,6 @@ export class ErrorHandler {
    * 记录错误日志
    */
   static logError(errorInfo: ErrorInfo, context?: string) {
-    const logData = {
-      timestamp: new Date().toISOString(),
-      context: context || 'unknown',
-      type: errorInfo.type,
-      code: errorInfo.code,
-      message: errorInfo.message,
-      details: errorInfo.details,
-      userAgent: navigator.userAgent,
-      url: window.location.href
-    }
-
     // 开发环境下打印到控制台
     if (process.env.NODE_ENV === 'development') {
       console.group(`🚨 Error [${errorInfo.type.toUpperCase()}]`)

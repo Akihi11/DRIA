@@ -1,9 +1,8 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios'
 import { 
-  FileUploadRequest, 
-  FileUploadResponse, 
   DialogueRequest, 
   DialogueResponse,
+  FileUploadResponse,
   ReportGenerationRequest,
   ReportGenerationResponse,
   HealthCheckResponse
@@ -58,7 +57,7 @@ class ApiService {
     formData.append('file', file)
 
     const response: AxiosResponse<any> = await this.client.post(
-      '/upload', 
+      '/ai_report/upload', 
       formData,
       {
         headers: {
@@ -124,7 +123,7 @@ class ApiService {
   // Get file channels with statistics
   async getFileChannels(fileId: string): Promise<any> {
     const response: AxiosResponse<any> = await this.client.get(
-      `/files/${fileId}/channels`
+      `/analysis/channels/${fileId}`
     )
     return response.data
   }

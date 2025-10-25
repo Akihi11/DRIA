@@ -10,6 +10,7 @@ from datetime import datetime
 import sys
 import os
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 # 确保可以从项目根目录导入
 project_root = Path(__file__).parent.parent.parent
@@ -18,11 +19,42 @@ if str(project_root) not in sys.path:
 
 from config import settings
 from models.api_models import ErrorResponse
-from api.routes import dialogue, health, config
+from api.routes import dialogue, health, config, upload, analysis
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL))
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan context manager"""
+    # 启动时执行的代码
+    logger.info("AI Chat API starting up (Python 3.12 compatible)...")
+    logger.info(f"Python version: {sys.version}")
+    logger.info(f"Current working directory: {os.getcwd()}")
+    
+    logger.info(f"Debug mode: {settings.DEBUG}")
+    
+    # 显示配置状态
+    available_providers = settings.get_available_providers()
+    logger.info(f"Default LLM provider: {settings.DEFAULT_LLM_PROVIDER}")
+    logger.info(f"Available providers: {available_providers}")
+    
+    if not available_providers:
+        logger.warning("⚠️  没有可用的LLM提供商！请检查.env配置文件")
+    elif not settings.is_provider_available(settings.DEFAULT_LLM_PROVIDER):
+        logger.warning(f"⚠️  默认提供商 '{settings.DEFAULT_LLM_PROVIDER}' 不可用，将使用: {available_providers[0]}")
+    else:
+        logger.info(f"✅ 默认提供商 '{settings.DEFAULT_LLM_PROVIDER}' 已正确配置")
+    
+    logger.info("AI Chat API ready for pure dialogue conversations")
+    
+    yield
+    
+    # 关闭时执行的代码
+    logger.info("AI Chat API shutting down...")
+
 
 # Create FastAPI application
 app = FastAPI(
@@ -31,7 +63,8 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json"
+    openapi_url="/api/openapi.json",
+    lifespan=lifespan
 )
 
 # Add CORS middleware
@@ -47,6 +80,8 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api", tags=["Health"])
 app.include_router(dialogue.router, prefix="/api", tags=["Dialogue"])
 app.include_router(config.router, prefix="/api/config", tags=["Config"])
+app.include_router(upload.router, prefix="/api", tags=["Upload"])
+app.include_router(analysis.router, prefix="/api", tags=["Analysis"])
 
 
 @app.exception_handler(Exception)
@@ -115,34 +150,6 @@ def custom_openapi():
 app.openapi = custom_openapi
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Application startup event"""
-    logger.info("AI Chat API starting up (Python 3.12 compatible)...")
-    logger.info(f"Python version: {sys.version}")
-    logger.info(f"Current working directory: {os.getcwd()}")
-    
-    logger.info(f"Debug mode: {settings.DEBUG}")
-    
-    # 显示配置状态
-    available_providers = settings.get_available_providers()
-    logger.info(f"Default LLM provider: {settings.DEFAULT_LLM_PROVIDER}")
-    logger.info(f"Available providers: {available_providers}")
-    
-    if not available_providers:
-        logger.warning("⚠️  没有可用的LLM提供商！请检查.env配置文件")
-    elif not settings.is_provider_available(settings.DEFAULT_LLM_PROVIDER):
-        logger.warning(f"⚠️  默认提供商 '{settings.DEFAULT_LLM_PROVIDER}' 不可用，将使用: {available_providers[0]}")
-    else:
-        logger.info(f"✅ 默认提供商 '{settings.DEFAULT_LLM_PROVIDER}' 已正确配置")
-    
-    logger.info("AI Chat API ready for pure dialogue conversations")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Application shutdown event"""
-    logger.info("AI Chat API shutting down...")
 
 
 if __name__ == "__main__":

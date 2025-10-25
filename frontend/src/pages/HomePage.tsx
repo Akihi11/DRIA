@@ -8,11 +8,10 @@ import {
   MessageOutlined,
   LineChartOutlined,
   SafetyCertificateOutlined,
-  ThunderboltOutlined,
-  StarOutlined
+  ThunderboltOutlined
 } from '@ant-design/icons'
 
-const { Title, Paragraph, Text } = Typography
+const { Title, Paragraph } = Typography
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate()

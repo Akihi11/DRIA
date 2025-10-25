@@ -5,6 +5,7 @@ import {
   RobotOutlined
 } from '@ant-design/icons'
 import { Message } from '../../types/store'
+import FileAnalysisResult from '../FileAnalysis/FileAnalysisResult'
 
 interface MessageBubbleProps {
   message: Message
@@ -28,7 +29,23 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   }
 
   const renderMessageContent = () => {
-    // Handle system messages
+    // Handle system messages with file analysis
+    if (isSystem && message.metadata?.fileInfo?.analysis?.success) {
+      const fileInfo = message.metadata.fileInfo
+      const analysis = fileInfo.analysis
+      
+      return (
+        <FileAnalysisResult
+          filename={fileInfo.filename}
+          fileSize={fileInfo.file_size}
+          channels={analysis.channels}
+          totalChannels={analysis.total_channels}
+          timestamp={message.timestamp}
+        />
+      )
+    }
+
+    // Handle regular system messages
     if (isSystem) {
       return (
         <div className="system-message">
@@ -63,6 +80,17 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
             </Button>
           ))}
         </Space>
+      </div>
+    )
+  }
+
+  // 如果是系统消息且有文件分析结果，不显示头像和时间戳
+  if (isSystem && message.metadata?.fileInfo?.analysis?.success) {
+    return (
+      <div className="message-item system-message">
+        <div className="message-content">
+          {renderMessageContent()}
+        </div>
       </div>
     )
   }

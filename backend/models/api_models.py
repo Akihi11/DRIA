@@ -46,6 +46,29 @@ class HealthCheckResponse(BaseModel):
     version: str = Field("1.0.0", description="API版本")
 
 
+class ChannelStatistics(BaseModel):
+    """通道统计信息模型"""
+    channel_name: str = Field(..., description="通道名称")
+    mean: float = Field(..., description="均值")
+    max_value: float = Field(..., description="最大值")
+    min_value: float = Field(..., description="最小值")
+    std_dev: float = Field(..., description="标准差")
+    count: int = Field(..., description="数据点数量")
+
+
+class ChannelAnalysisRequest(BaseModel):
+    """通道分析请求模型"""
+    file_id: str = Field(..., description="文件ID")
+
+
+class ChannelAnalysisResponse(BaseModel):
+    """通道分析响应模型"""
+    file_id: str = Field(..., description="文件ID")
+    total_channels: int = Field(..., description="总通道数")
+    channels: List[ChannelStatistics] = Field(..., description="通道统计信息列表")
+    analysis_time: str = Field(..., description="分析时间")
+
+
 class ErrorResponse(BaseModel):
     """错误响应模型"""
     error: str = Field(..., description="错误类型")

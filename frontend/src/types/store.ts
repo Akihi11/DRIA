@@ -32,6 +32,47 @@ export interface Message {
 
 export interface MessageMetadata {
   suggestedActions?: string[]
+  fileInfo?: any
+}
+
+// Report Types
+export interface ReportItem {
+  id: string
+  name: string
+  fileId: string
+  fileName: string
+  generatedAt: Date
+  filePath: string
+  config: {
+    sourceFileId: string
+    reportConfig: {
+      sections: string[]
+    }
+  }
+  status: 'completed' | 'generating' | 'failed'
+}
+
+// File Types
+export interface FileInfo {
+  id: string
+  name: string
+  size: number
+  type: string
+  uploadTime: Date
+}
+
+export interface FileState {
+  currentFile: FileInfo | null
+  uploadProgress: number
+  isUploading: boolean
+  error: string | null
+}
+
+export interface ReportsState {
+  reports: ReportItem[]
+  currentReport: ReportItem | null
+  isGenerating: boolean
+  error: string | null
 }
 
 // Action Types

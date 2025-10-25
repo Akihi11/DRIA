@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
-import { Layout, Input, Button, message, Space, Spin } from 'antd'
+import { Layout, Input, Button, Space, Spin } from 'antd'
 import { 
   SendOutlined, 
   RobotOutlined
 } from '@ant-design/icons'
 import MessageBubble from './MessageBubble'
+import FileUploadButton from '../FileUpload/FileUploadButton'
 import { Message } from '../../types/store'
 import { DialogueState } from '../../types/api'
 import './ChatContainer.css'
@@ -13,7 +14,8 @@ const { Content, Footer } = Layout
 const { TextArea } = Input
 
 export interface ChatContainerRef {
-  // 纯对话不需要文件上传功能
+  // 文件上传功能
+  uploadFile: () => void
 }
 
 interface ChatContainerProps {
@@ -23,6 +25,7 @@ interface ChatContainerProps {
   onSendMessage: (content: string) => void
   onError: (error: string) => void
   onActionClick?: (action: string) => void
+  onFileUploaded?: (fileInfo: any) => void
 }
 
 const ChatContainer = forwardRef<ChatContainerRef, ChatContainerProps>(({
@@ -31,7 +34,8 @@ const ChatContainer = forwardRef<ChatContainerRef, ChatContainerProps>(({
   isLoading,
   onSendMessage,
   onError,
-  onActionClick
+  onActionClick,
+  onFileUploaded
 }, ref) => {
   const [inputValue, setInputValue] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -43,7 +47,11 @@ const ChatContainer = forwardRef<ChatContainerRef, ChatContainerProps>(({
 
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
-    // 纯对话不需要文件上传功能
+    uploadFile: () => {
+      // 触发文件上传
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+      fileInput?.click()
+    }
   }))
 
   const handleSendMessage = () => {
@@ -52,6 +60,16 @@ const ChatContainer = forwardRef<ChatContainerRef, ChatContainerProps>(({
     const content = inputValue.trim()
     setInputValue('')
     onSendMessage(content)
+  }
+
+  const handleFileUploaded = (fileInfo: any) => {
+    // 这里需要调用父组件的消息添加方法
+    // 暂时通过onFileUploaded回调传递文件信息
+    onFileUploaded?.(fileInfo)
+  }
+
+  const handleFileUploadError = (error: string) => {
+    onError(error)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -108,6 +126,11 @@ const ChatContainer = forwardRef<ChatContainerRef, ChatContainerProps>(({
                 disabled={isInputDisabled}
                 autoSize={{ minRows: 1, maxRows: 4 }}
                 style={{ flex: 1 }}
+              />
+              <FileUploadButton
+                onFileUploaded={handleFileUploaded}
+                onUploadError={handleFileUploadError}
+                disabled={isInputDisabled}
               />
               <Button
                 type="primary"

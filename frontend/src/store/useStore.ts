@@ -46,7 +46,7 @@ interface DialogueStore extends DialogueStoreState {
 }
 
 export const useDialogueStore = create<DialogueStore>()(
-  subscribeWithSelector((set, get) => ({
+  subscribeWithSelector((set) => ({
     sessionId: null,
     messages: [],
     currentState: DialogueState.INITIAL,
@@ -140,7 +140,7 @@ interface ReportsStore extends ReportsState {
 }
 
 export const useReportsStore = create<ReportsStore>()(
-  subscribeWithSelector((set, get) => ({
+  subscribeWithSelector((set) => ({
     reports: [],
     currentReport: null,
     isGenerating: false,

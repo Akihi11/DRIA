@@ -1,6 +1,6 @@
 import React from 'react'
 import { Outlet, Link, useLocation } from 'react-router-dom'
-import { Layout, Menu, Typography } from 'antd'
+import { Layout, Menu } from 'antd'
 import { 
   HomeOutlined, 
   MessageOutlined, 
@@ -9,7 +9,6 @@ import {
 } from '@ant-design/icons'
 
 const { Header, Content } = Layout
-const { Title } = Typography
 
 const MainLayout: React.FC = () => {
   const location = useLocation()

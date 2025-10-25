@@ -47,6 +47,11 @@
   animation: fadeIn 0.3s ease-in-out;
 }
 
+.message-item.system-message {
+  max-width: 100%;
+  justify-content: flex-start;
+}
+
 .message-item.user-message {
   align-self: flex-end;
   flex-direction: row-reverse;
@@ -82,6 +87,11 @@
   border-radius: 8px;
   word-wrap: break-word;
   line-height: 1.5;
+}
+
+.system-message .message-content {
+  padding: 0;
+  background: transparent;
 }
 
 .user-message .message-content {
