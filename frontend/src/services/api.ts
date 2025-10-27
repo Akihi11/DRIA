@@ -138,6 +138,37 @@ class ApiService {
     )
     return response.data
   }
+
+  // Report configuration APIs
+  async startReportConfig(sessionId: string, reportType: string): Promise<any> {
+    const response: AxiosResponse<any> = await this.client.post(
+      '/report_config/start',
+      {
+        session_id: sessionId,
+        report_type: reportType
+      }
+    )
+    return response.data
+  }
+
+  async updateReportConfig(sessionId: string, action: string, value?: any): Promise<any> {
+    const response: AxiosResponse<any> = await this.client.post(
+      '/report_config/update',
+      {
+        session_id: sessionId,
+        action: action,
+        value: value
+      }
+    )
+    return response.data
+  }
+
+  async getConfigStatus(sessionId: string): Promise<any> {
+    const response: AxiosResponse<any> = await this.client.get(
+      `/report_config/status/${sessionId}`
+    )
+    return response.data
+  }
 }
 
 // Create singleton instance

@@ -19,7 +19,7 @@ if str(project_root) not in sys.path:
 
 from config import settings
 from models.api_models import ErrorResponse
-from api.routes import dialogue, health, config, upload, analysis
+from api.routes import dialogue, health, config, upload, analysis, config_dialogue
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL))
@@ -80,6 +80,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api", tags=["Health"])
 app.include_router(dialogue.router, prefix="/api", tags=["Dialogue"])
 app.include_router(config.router, prefix="/api/config", tags=["Config"])
+app.include_router(config_dialogue.router, prefix="/api/config-dialogue", tags=["Config Dialogue"])
 app.include_router(upload.router, prefix="/api", tags=["Upload"])
 app.include_router(analysis.router, prefix="/api", tags=["Analysis"])
 

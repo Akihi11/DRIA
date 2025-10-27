@@ -33,6 +33,9 @@ export interface Message {
 export interface MessageMetadata {
   suggestedActions?: string[]
   fileInfo?: any
+  configState?: string
+  currentParams?: any
+  sessionId?: string
 }
 
 // Report Types
