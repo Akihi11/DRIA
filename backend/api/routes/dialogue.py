@@ -201,14 +201,24 @@ def parse_user_input_to_action(user_input: str, current_state: str, current_para
     user_input_lower = user_input.lower()
     
     # 根据当前状态解析
-    if current_state == "channel_selection":
+    if current_state in ["display_channels", "channel_selection"]:
         if any(keyword in user_input_lower for keyword in ['ng', '转速', 'rpm']):
-            return {'action': '使用 Ng(rpm)'}
+            return {'action': '选择 Ng(rpm)'}
         elif any(keyword in user_input_lower for keyword in ['温度', 'temperature', '°c']):
-            return {'action': '使用 Temperature(°C)'}
+            return {'action': '选择 Temperature(°C)'}
         elif any(keyword in user_input_lower for keyword in ['压力', 'pressure', 'kpa']):
-            return {'action': '使用 Pressure(kPa)'}
+            return {'action': '选择 Pressure(kPa)'}
+        elif any(keyword in user_input_lower for keyword in ['完成', '确定', '选好了']):
+            return {'action': '完成通道选择'}
     
+    elif current_state in ["trigger_combo"]:
+        if '仅用条件一' in user_input or 'cond1' in user_input_lower:
+            return {'action': '仅用条件一'}
+        if '仅用条件二' in user_input or 'cond2' in user_input_lower:
+            return {'action': '仅用条件二'}
+        if 'and' in user_input_lower or '同时' in user_input:
+            return {'action': 'AND'}
+
     elif current_state == "parameter_config":
         # 解析阈值修改
         if '阈值' in user_input or 'threshold' in user_input_lower:
@@ -333,8 +343,10 @@ def get_config_suggestions(current_state: str) -> List[str]:
     """根据当前状态获取建议操作"""
     from backend.api.routes.report_config import ConfigState
     
-    if current_state == ConfigState.CHANNEL_SELECTION:
-        return ['使用转速通道', '使用温度通道', '使用压力通道', '取消配置']
+    if current_state == ConfigState.DISPLAY_CHANNELS:
+        return ['选择 Ng(rpm)', '选择 Np(rpm)', '选择 Temperature(°C)', '选择 Pressure(kPa)', '完成通道选择', '取消配置']
+    elif current_state == ConfigState.TRIGGER_COMBO:
+        return ['仅用条件一', '仅用条件二', 'AND', '返回修改通道']
     elif current_state == ConfigState.PARAMETER_CONFIG:
         return ['修改统计方法', '修改阈值', '修改时间窗口', '确认配置', '取消配置']
     elif current_state == ConfigState.CONFIRMATION:

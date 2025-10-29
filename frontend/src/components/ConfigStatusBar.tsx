@@ -38,37 +38,18 @@ const ConfigStatusBar: React.FC<ConfigStatusBarProps> = (props) => {
     onCancelConfig()
   }
 
-  // 渲染配置参数
+  // 渲染配置参数（仅在参数配置阶段显示，初始阶段不显示）
   const renderConfigParams = () => {
     if (!currentParams) return null
+    
+    // 在通道选择阶段不显示任何参数标签
+    const configState = currentState || ''
+    if (configState === 'display_channels' || configState === 'trigger_combo' || !configState) {
+      return null
+    }
 
     const config = currentParams
     const params = []
-
-    // 通道配置
-    if (config.use_rpm_channel !== undefined) {
-      params.push(
-        <Tag key="rpm" color={config.use_rpm_channel ? 'green' : 'default'}>
-          转速通道: {config.use_rpm_channel ? '启用' : '禁用'}
-        </Tag>
-      )
-    }
-    
-    if (config.use_temperature_channel !== undefined) {
-      params.push(
-        <Tag key="temp" color={config.use_temperature_channel ? 'green' : 'default'}>
-          温度通道: {config.use_temperature_channel ? '启用' : '禁用'}
-        </Tag>
-      )
-    }
-    
-    if (config.use_pressure_channel !== undefined) {
-      params.push(
-        <Tag key="pressure" color={config.use_pressure_channel ? 'green' : 'default'}>
-          压力通道: {config.use_pressure_channel ? '启用' : '禁用'}
-        </Tag>
-      )
-    }
 
     // 阈值配置
     if (config.threshold !== undefined) {
@@ -88,14 +69,7 @@ const ConfigStatusBar: React.FC<ConfigStatusBarProps> = (props) => {
       )
     }
 
-    // 时间窗口
-    if (config.time_window !== undefined) {
-      params.push(
-        <Tag key="time" color="orange">
-          时间窗口: {config.time_window}{config.time_unit || '分钟'}
-        </Tag>
-      )
-    }
+    // 时间窗口已移除，不再显示
 
     return params
   }
@@ -111,8 +85,20 @@ const ConfigStatusBar: React.FC<ConfigStatusBarProps> = (props) => {
         return <Tag color="success" icon={<CheckCircleOutlined />}>已完成</Tag>
       case 'cancelled':
         return <Tag color="error" icon={<CloseCircleOutlined />}>已取消</Tag>
+      case 'display_channels':
+        return <Tag color="processing" icon={<SettingOutlined />}>通道选择</Tag>
+      case 'select_rpm_standard':
+        return <Tag color="processing" icon={<SettingOutlined />}>选择判断标准</Tag>
+      case 'trigger_combo':
+        return <Tag color="processing" icon={<SettingOutlined />}>条件配置</Tag>
+      case 'parameter_config':
+        return <Tag color="processing" icon={<SettingOutlined />}>参数配置</Tag>
+      case 'confirmation':
+        return <Tag color="warning" icon={<CheckCircleOutlined />}>确认配置</Tag>
+      case 'initial':
+        return <Tag color="default" icon={<SettingOutlined />}>等待选择</Tag>
       default:
-        return <Tag color="default">未知状态</Tag>
+        return <Tag color="processing" icon={<SettingOutlined />}>配置中</Tag>
     }
   }
 
@@ -123,6 +109,8 @@ const ConfigStatusBar: React.FC<ConfigStatusBarProps> = (props) => {
         return '完成配置'
       case 'confirming':
         return '确认生成报表'
+      case 'initial':
+        return '等待选择报表类型' // 在等待选择报表类型时禁用按钮
       default:
         return '完成配置'
     }
@@ -157,6 +145,7 @@ const ConfigStatusBar: React.FC<ConfigStatusBarProps> = (props) => {
             icon={<CheckCircleOutlined />}
             onClick={handleCompleteClick}
             className="complete-btn"
+            disabled={currentState === 'initial'} // 等待选择报表类型时禁用
           >
             {getButtonText()}
           </Button>

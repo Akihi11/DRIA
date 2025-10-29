@@ -12,13 +12,14 @@ from datetime import datetime
 import sys
 
 # 添加父目录到Python路径以支持相对导入
-current_dir = Path(__file__).parent
-parent_dir = current_dir.parent.parent
+current_dir = Path(__file__).resolve().parent  # backend/api/routes
+parent_dir = current_dir.parent.parent  # backend 目录 (routes -> api -> backend)
 sys.path.insert(0, str(parent_dir))
 
 from config import settings
 from models.api_models import ErrorResponse
 from services.channel_analysis_service import ChannelAnalysisService
+import json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -86,6 +87,11 @@ async def upload_file(file: UploadFile = File(...)):
         analysis_service = ChannelAnalysisService()
         analysis_result = analysis_service.analyze_file(str(file_path))
         
+        # 确保分析结果有效
+        if not analysis_result or not analysis_result.get("success"):
+            logger.warning(f"文件分析可能失败，但仍继续创建JSON文件。结果: {analysis_result}")
+            print(f"[WARNING] 文件分析可能失败: {analysis_result}")
+        
         # 构建响应数据
         response_data = {
             "success": True,
@@ -97,7 +103,100 @@ async def upload_file(file: UploadFile = File(...)):
             "upload_time": datetime.now().isoformat(),
             "analysis": analysis_result
         }
-        
+
+        # 创建基于config_full.json模板的配置文件，存储通道信息和统计值
+        # 必须在 recreate 异常捕获之前执行，确保即使失败也能看到错误
+        print(f"[DEBUG] 开始创建JSON文件，file_id: {file_id}")
+        try:
+            # 存放在 backend/config_sessions/ 目录
+            # upload.py 位于 backend/api/routes/upload.py
+            # __file__ 的 parent.parent.parent 就是 backend 目录
+            # 但也可以使用代码中已定义的 parent_dir（第16行已计算好）
+            config_dir = parent_dir / "config_sessions"
+            
+            print(f"[DEBUG] parent_dir (backend): {parent_dir.absolute()}")
+            print(f"[DEBUG] config_dir: {config_dir.absolute()}")
+            
+            config_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 使用年月日时分秒毫秒格式命名：YYYYMMDDHHmmssSSS.json（添加毫秒避免同一秒内冲突）
+            timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]  # %f是微秒，取前3位即毫秒
+            config_filename = f"{timestamp_str}.json"
+            config_path = config_dir / config_filename
+            
+            print(f"[DEBUG] config_path: {config_path.absolute()}")
+            
+            # 确保分析结果有数据
+            print(f"[DEBUG] analysis_result success: {analysis_result.get('success', False)}")
+            print(f"[DEBUG] channels count: {len(analysis_result.get('channels', []))}")
+            
+            # 构建符合config_full.json模板结构的配置
+            channels_data = []
+            channels_list = analysis_result.get("channels", []) if analysis_result else []
+            
+            if not channels_list:
+                logger.warning("分析结果中没有通道数据，将创建空的channels数组")
+                print(f"[WARNING] 分析结果中没有通道数据，channels_list为空。analysis_result: {analysis_result}")
+            
+            for ch in channels_list:
+                if not ch or not ch.get("channel_name"):
+                    logger.warning(f"跳过无效的通道数据: {ch}")
+                    continue
+                try:
+                    channels_data.append({
+                        "channel_name": ch.get("channel_name"),
+                        "statistics": {
+                            "count": ch.get("count", 0),
+                            "mean": ch.get("mean", 0.0),
+                            "max_value": ch.get("max_value", 0.0),
+                            "min_value": ch.get("min_value", 0.0),
+                            "std_dev": ch.get("std_dev", 0.0),
+                            "range": ch.get("range", 0.0),
+                            "median": ch.get("median", 0.0),
+                            "q25": ch.get("q25", 0.0),
+                            "q75": ch.get("q75", 0.0),
+                            "variance": ch.get("variance", 0.0)
+                        }
+                    })
+                except Exception as ch_err:
+                    logger.warning(f"处理通道 {ch.get('channel_name', 'unknown')} 时出错: {ch_err}")
+                    print(f"[WARNING] 处理通道时出错: {ch_err}")
+                    continue
+            
+            print(f"[DEBUG] 处理后的channels_data数量: {len(channels_data)}")
+            
+            config_content = {
+                "sourceFileId": file.filename,
+                "fileId": file_id,  # 保存原始的UUID格式file_id
+                "configFileName": config_filename,  # 保存配置文件名（时间戳格式）
+                "uploadTime": response_data["upload_time"],
+                "channels": channels_data,
+                "reportConfig": {
+                    "sections": []
+                }
+            }
+
+            with config_path.open("w", encoding="utf-8") as f:
+                json.dump(config_content, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"✅ 已创建配置文件: {config_path}")
+            print(f"[SUCCESS] ✅ 已创建配置文件: {config_path.absolute()}")
+            print(f"[SUCCESS] 文件大小: {config_path.stat().st_size} bytes")
+            
+            # 验证文件是否真的创建成功
+            if config_path.exists():
+                print(f"[SUCCESS] 文件验证：存在")
+            else:
+                print(f"[ERROR] 文件验证失败：文件不存在！")
+        except Exception as config_err:
+            logger.error(f"❌ 创建配置文件失败: {config_err}", exc_info=True)
+            print(f"[ERROR] ❌ 创建配置文件失败: {config_err}")
+            print(f"[ERROR] 错误类型: {type(config_err).__name__}")
+            import traceback
+            traceback.print_exc()
+            # 不要因为JSON创建失败而影响文件上传响应
+            print(f"[WARNING] JSON创建失败，但文件上传成功")
+
         return response_data
         
     except HTTPException:
@@ -174,3 +273,58 @@ async def delete_file(file_id: str):
             status_code=500,
             detail=f"文件删除失败: {str(e)}"
         )
+
+
+@router.post("/ai_report/meta/{file_id}/report_type", summary="更新配置文件中的报表类型")
+async def update_upload_meta_report_type(file_id: str, report_type: str = Form(...)):
+    """
+    更新上传文件对应的配置JSON中的报表类型字段。
+    前端在用户选择报表类型后调用。
+    统一使用 backend/config_sessions/ 目录存储。
+    """
+    try:
+        # 使用 backend/config_sessions/ 目录
+        backend_dir = Path(__file__).resolve().parent.parent.parent
+        config_dir = backend_dir / "config_sessions"
+        
+        # 通过fileId查找对应的JSON文件
+        config_path = None
+        for json_file in config_dir.glob("*.json"):
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+                    if cfg.get("fileId") == file_id:
+                        config_path = json_file
+                        break
+            except Exception:
+                continue
+        
+        if not config_path or not config_path.exists():
+            raise HTTPException(status_code=404, detail="配置文件不存在，请先上传文件")
+
+        # 读取现有配置
+        with config_path.open("r", encoding="utf-8") as f:
+            config = json.load(f)
+
+        # 更新报表类型
+        config["reportType"] = report_type
+        # 可选：记录一次历史
+        if "history" not in config:
+            config["history"] = []
+        config["history"].append({
+            "timestamp": datetime.now().isoformat(),
+            "action": "set_report_type",
+            "value": report_type
+        })
+
+        # 保存更新后的配置
+        with config_path.open("w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+
+        logger.info(f"已更新报表类型: {file_id} -> {report_type}")
+        return {"success": True, "file_id": file_id, "report_type": report_type}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新报表类型失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"更新报表类型失败: {str(e)}")

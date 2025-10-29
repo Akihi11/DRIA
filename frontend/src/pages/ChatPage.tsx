@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { message } from 'antd'
+import { message, Modal, Checkbox, Space, Button } from 'antd'
 import ChatContainer, { ChatContainerRef } from '../components/Chat/ChatContainer'
 import ConfigStatusBar from '../components/ConfigStatusBar'
 import { Message } from '../types/store'
@@ -28,6 +28,17 @@ const ChatPage: React.FC = () => {
     currentParams: {}
   })
   const chatContainerRef = useRef<ChatContainerRef>(null)
+
+  // 最近一次上传文件解析出的通道列表（用于稳态参数多选）
+  const [lastFileChannels, setLastFileChannels] = useState<string[]>([])
+  const [lastFileId, setLastFileId] = useState<string>("")
+  const [channelModalVisible, setChannelModalVisible] = useState<boolean>(false)
+  const [selectedChannels, setSelectedChannels] = useState<string[]>([])
+
+  const containsNg = (name: string) => /(^|[^A-Za-z])Ng(\(|[^A-Za-z]|$)|转速|低压/.test(name)
+  const containsNp = (name: string) => /(^|[^A-Za-z])Np(\(|[^A-Za-z]|$)|高压/.test(name)
+  const containsTemp = (name: string) => /(温度|Temperature|°C)/i.test(name)
+  const containsPressure = (name: string) => /(压力|Pressure|kPa)/i.test(name)
 
   // Initialize session on component mount
   useEffect(() => {
@@ -352,11 +363,105 @@ const ChatPage: React.FC = () => {
 
   const handleActionClick = async (action: string) => {
     // 检查是否是报表类型按钮
-    if (['稳态分析', '功能计算', '状态评估', '完整报表'].includes(action)) {
-      await handleReportTypeClick(action)
+    if (['稳态分析', '稳态参数', '功能计算', '状态评估', '完整报表'].includes(action)) {
+      // 如果点击的是稳态参数，转换为稳态分析
+      const reportType = action === '稳态参数' ? '稳态分析' : action
+      await handleReportTypeClick(reportType)
     } else {
       // 其他建议按钮，正常发送消息
       handleSendMessage(action)
+    }
+  }
+
+  // 应用“稳态参数”通道选择
+  const applySteadyStateChannelSelection = async () => {
+    if (!configMode.sessionId) return
+
+    // 校验：必须至少选择一个转速通道（Ng 或 Np）
+    const hasNg = selectedChannels.some(c => containsNg(c))
+    const hasNp = selectedChannels.some(c => containsNp(c))
+    if (!hasNg && !hasNp) {
+      message.warning('请至少选择一个转速通道（Ng 或 Np）')
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      // 1) 先选择所有通道
+      for (const channel of selectedChannels) {
+        await fetch('/api/config-dialogue/update-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: configMode.sessionId, user_input: `选择 ${channel}` })
+        })
+      }
+
+      // 2) 调用"完成通道选择"，后端会返回默认条件一和二
+      const response = await fetch('/api/config-dialogue/update-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: configMode.sessionId, user_input: '完成通道选择' })
+      })
+
+      const data = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(data.detail || '完成通道选择失败')
+      }
+
+      // 关闭弹窗
+      setChannelModalVisible(false)
+
+      // 显示后端返回的消息和建议操作
+      // 使用后端返回的suggested_actions，不要使用后备选项
+      const currentState = data.state || data.status
+      console.log('[DEBUG] 完成通道选择后，后端返回:', {
+        state: currentState,
+        message: data.message,
+        suggested_actions: data.suggested_actions,
+        current_params: data.current_params
+      })
+      
+      const aiMessage: Message = {
+        id: uuidv4(),
+        type: 'ai',
+        content: data.message || '已选择通道',
+        timestamp: new Date(),
+        metadata: {
+          suggestedActions: data.suggested_actions || [], // 直接使用后端返回的，不要后备选项
+          configState: currentState,
+          currentParams: data.current_params || data.config
+        }
+      }
+      setMessages(prev => [...prev, aiMessage])
+
+      // 更新配置状态
+      setConfigMode(prev => ({
+        ...prev,
+        currentState: data.status || data.state,
+        currentParams: data.current_params || data.config || prev.currentParams
+      }))
+    } catch (e) {
+      message.error('应用通道选择失败，请重试')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // 将前端展示名称映射为后端识别的报表类型 key
+  const mapReportTypeToBackend = (rt: string): string => {
+    switch (rt) {
+      case '稳态分析':
+      case '稳态参数':
+        return 'steady_state'
+      case '功能计算':
+        return 'function_calc'
+      case '状态评估':
+        return 'status_eval'
+      case '完整报表':
+        return 'complete'
+      default:
+        return rt
     }
   }
 
@@ -373,8 +478,9 @@ const ChatPage: React.FC = () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          report_type: reportType,
-          user_id: sessionId
+          report_type: mapReportTypeToBackend(reportType),
+          user_id: sessionId,
+          file_id: lastFileId || undefined
         })
       })
       
@@ -392,22 +498,46 @@ const ChatPage: React.FC = () => {
         reportType: reportType,
         currentParams: configResponse.config || {}
       })
-      
-      // 添加AI响应消息
-      const aiMessage: Message = {
-        id: uuidv4(),
-        type: 'ai',
-        content: configResponse.message,
-        timestamp: new Date(),
-        metadata: {
-          suggestedActions: ['使用转速通道', '使用温度通道', '阈值改成15000', '使用平均值'],
-          configState: configResponse.status,
-          currentParams: configResponse.config,
-          sessionId: configResponse.session_id
+
+      // 若选择的是“稳态分析”，弹出通道多选弹窗，不显示AI消息
+      if (reportType === '稳态分析') {
+        const base = lastFileChannels && lastFileChannels.length > 0
+          ? lastFileChannels
+          : ['Ng(rpm)', 'Np(rpm)', 'Temperature(°C)', 'Pressure(kPa)']
+        setSelectedChannels([])
+        setChannelModalVisible(true)
+        // 确保候选存在
+        setLastFileChannels(base)
+        // 有弹窗时不显示AI消息
+      } else {
+        // 非稳态分析，显示AI消息
+        const fallbackActions = ['选择 Ng 转速通道', '选择 Np 转速通道', '选择温度通道', '选择压力通道', '确认配置', '取消配置']
+        const aiMessage: Message = {
+          id: uuidv4(),
+          type: 'ai',
+          content: configResponse.message,
+          timestamp: new Date(),
+          metadata: {
+            suggestedActions: (configResponse.suggested_actions && configResponse.suggested_actions.length > 0)
+              ? configResponse.suggested_actions
+              : fallbackActions,
+            configState: configResponse.status,
+            currentParams: configResponse.config,
+            sessionId: configResponse.session_id
+          }
         }
+        setMessages(prev => [...prev, aiMessage])
       }
-      
-      setMessages(prev => [...prev, aiMessage])
+
+      // 将选择的报表类型写入最近一次上传文件的元数据JSON
+      if (lastFileId) {
+        const form = new FormData()
+        form.append('report_type', reportType)
+        fetch(`/api/ai_report/meta/${lastFileId}/report_type`, {
+          method: 'POST',
+          body: form
+        }).catch(() => {})
+      }
       
     } catch (error) {
       console.error('Report config error:', error)
@@ -460,69 +590,38 @@ const ChatPage: React.FC = () => {
     
     setMessages(prev => [...prev, fileMessage])
     
-    // 文件上传后自动进入配置模式 - 默认开始完整报表配置
-    setIsLoading(true)
+    // 文件上传后：只给出报表类型选择，不自动进入配置
+    // 记录可用通道名称供“稳态参数”弹窗使用
     try {
-      const response = await fetch('/api/config-dialogue/start-config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          report_type: '完整报表',
-          user_id: sessionId
-        })
-      })
-      
-      const configResponse = await response.json()
-      
-      if (!response.ok) {
-        throw new Error(configResponse.detail || '启动配置失败')
+      const channelNames = (fileInfo?.analysis?.channels || []).map((c: any) => c.channel_name || c.name).filter(Boolean)
+      if (channelNames.length > 0) {
+        setLastFileChannels(channelNames)
       }
-      
-      // 进入配置模式
-      setConfigMode({
-        isActive: true,
-        sessionId: configResponse.session_id,
-        currentState: configResponse.status,
-        reportType: '完整报表',
-        currentParams: configResponse.config || {}
-      })
-      
-      // 添加AI响应消息
-      const aiResponse: Message = {
-        id: uuidv4(),
-        type: 'ai',
-        content: `太好了！我已经成功接收了您的数据文件 "${fileInfo.filename}"。\n\n我已经自动为您开启了报表配置模式。您可以通过自然语言来配置报表参数，或者直接点击下方按钮进行快速设置。\n\n配置完成后，请点击上方的"完成配置"按钮开始生成报表。\n\n支持的配置项：\n• 选择数据通道（转速、温度、压力等）\n• 设置分析阈值\n• 选择统计方法\n• 设置时间窗口`,
-        timestamp: new Date(),
-        metadata: {
-          suggestedActions: ['使用转速通道', '使用温度通道', '使用压力通道', '设置阈值'],
-          configState: configResponse.status,
-          currentParams: configResponse.config,
-          sessionId: configResponse.session_id
-        }
+      if (fileInfo?.file_id) {
+        setLastFileId(fileInfo.file_id)
       }
-      
-      setMessages(prev => [...prev, aiResponse])
-      
-    } catch (error) {
-      console.error('启动配置失败:', error)
-      
-      // 如果配置启动失败，提供备用响应
-      const aiResponse: Message = {
-        id: uuidv4(),
-        type: 'ai',
-        content: `太好了！我已经成功接收了您的数据文件 "${fileInfo.filename}"。\n\n请告诉我您希望进行什么样的分析：\n\n• 稳态分析\n• 功能计算\n• 状态评估\n• 完整报表（依次生成以上三种报表）`,
-        timestamp: new Date(),
-        metadata: {
-          suggestedActions: ['稳态分析', '功能计算', '状态评估', '完整报表']
-        }
+    } catch {}
+
+    // 文件上传后自动进入配置模式（但不启动具体报表配置，等用户选择报表类型）
+    // 显示配置横幅，状态为"等待选择报表类型"
+    setConfigMode({
+      isActive: true,
+      sessionId: '', // 还未选择报表类型，暂时为空
+      currentState: 'initial',
+      reportType: '待选择',
+      currentParams: {}
+    })
+
+    const aiResponse: Message = {
+      id: uuidv4(),
+      type: 'ai',
+      content: `太好了！我已经成功接收了您的数据文件 "${fileInfo.filename}"。\n\n请先选择要生成的报表类型：`,
+      timestamp: new Date(),
+      metadata: {
+        suggestedActions: ['稳态参数', '功能计算', '状态评估', '完整报表']
       }
-      
-      setMessages(prev => [...prev, aiResponse])
-    } finally {
-      setIsLoading(false)
     }
+    setMessages(prev => [...prev, aiResponse])
   }
 
   return (
@@ -560,6 +659,29 @@ const ChatPage: React.FC = () => {
           onFileUploaded={handleFileUploaded}
         />
       </div>
+
+      {/* 稳态参数 - 通道多选弹窗 */}
+      <Modal
+        title="请选择用于稳态参数的通道（至少包含一个转速通道）"
+        open={channelModalVisible}
+        onCancel={() => setChannelModalVisible(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setChannelModalVisible(false)}>取消</Button>,
+          <Button key="ok" type="primary" onClick={applySteadyStateChannelSelection}>确定</Button>
+        ]}
+      >
+        <Checkbox.Group
+          style={{ width: '100%' }}
+          value={selectedChannels}
+          onChange={(vals) => setSelectedChannels(vals as string[])}
+        >
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {lastFileChannels.map(name => (
+              <Checkbox key={name} value={name}>{name}</Checkbox>
+            ))}
+          </Space>
+        </Checkbox.Group>
+      </Modal>
     </div>
   )
 }

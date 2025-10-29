@@ -1,5 +1,69 @@
 {
   "sourceFileId": "Simulated_Data.csv",
+  "fileId": "uuid-string-here",
+  "uploadTime": "2024-01-01T00:00:00.000000",
+  "channels": [
+    {
+      "channel_name": "Ng(rpm)",
+      "statistics": {
+        "count": 6001,
+        "mean": 1458.090,
+        "max_value": 2500.000,
+        "min_value": 0.000,
+        "std_dev": 999.483,
+        "range": 2500.000,
+        "median": 1500.000,
+        "q25": 1200.000,
+        "q75": 1800.000,
+        "variance": 998967.000
+      }
+    },
+    {
+      "channel_name": "Np(rpm)",
+      "statistics": {
+        "count": 6001,
+        "mean": 1458.090,
+        "max_value": 2500.000,
+        "min_value": 0.000,
+        "std_dev": 999.483,
+        "range": 2500.000,
+        "median": 1500.000,
+        "q25": 1200.000,
+        "q75": 1800.000,
+        "variance": 998967.000
+      }
+    },
+    {
+      "channel_name": "Temperature(°C)",
+      "statistics": {
+        "count": 6001,
+        "mean": 258.218,
+        "max_value": 931.859,
+        "min_value": 123.978,
+        "std_dev": 194.641,
+        "range": 807.881,
+        "median": 240.000,
+        "q25": 200.000,
+        "q75": 300.000,
+        "variance": 37885.000
+      }
+    },
+    {
+      "channel_name": "Pressure(kPa)",
+      "statistics": {
+        "count": 6001,
+        "mean": 421.465,
+        "max_value": 1000.000,
+        "min_value": 4.479,
+        "std_dev": 313.216,
+        "range": 995.521,
+        "median": 400.000,
+        "q25": 200.000,
+        "q75": 600.000,
+        "variance": 98104.000
+      }
+    }
+  ],
   "reportConfig": {
     "sections": [
       "stableState",

@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 import logging
+import time
 
 # 导入服务
 import sys
@@ -27,6 +28,7 @@ class StartConfigRequest(BaseModel):
     """开始配置请求"""
     report_type: str = Field(..., description="报表类型")
     user_id: str = Field(..., description="用户ID")
+    file_id: Optional[str] = Field(default=None, description="上传文件ID，用于读取可选通道")
 
 class StartConfigResponse(BaseModel):
     """开始配置响应"""
@@ -34,6 +36,7 @@ class StartConfigResponse(BaseModel):
     config: Dict[str, Any]
     status: str
     message: str
+    suggested_actions: Optional[list] = None
 
 class UpdateConfigRequest(BaseModel):
     """更新配置请求"""
@@ -82,14 +85,30 @@ async def start_config_dialogue(request: StartConfigRequest):
     开始配置对话会话
     
     用户点击报表按钮后，系统进入配置模式，支持通过自然语言对话配置参数
+    对于steady_state类型，使用状态驱动的ReportConfigManager
     """
     try:
-        session_info = await config_manager.start_config_session(
-            report_type=request.report_type,
-            user_id=request.user_id
-        )
-        
-        return StartConfigResponse(**session_info)
+        # 对于steady_state，使用状态驱动的ReportConfigManager
+        if request.report_type == "steady_state":
+            # 延迟导入避免循环导入
+            from backend.api.routes.report_config import config_manager as report_config_manager
+            session_id = f"{request.user_id}_{request.report_type}_{int(time.time())}"
+            config_response = report_config_manager.start_config(session_id, request.report_type, request.file_id)
+            
+            return StartConfigResponse(
+                session_id=config_response.session_id,
+                config=config_response.current_params,
+                status=config_response.state,
+                message=config_response.message,
+                suggested_actions=config_response.suggested_actions
+            )
+        else:
+            # 其他类型使用旧的ConfigManager
+            session_info = await config_manager.start_config_session(
+                report_type=request.report_type,
+                user_id=request.user_id
+            )
+            return StartConfigResponse(**session_info)
         
     except Exception as e:
         logger.error(f"开始配置对话失败: {e}")
@@ -104,9 +123,37 @@ async def update_config_dialogue(request: UpdateConfigRequest):
     - "使用转速通道" → 转速通道 = true
     - "阈值改成15000" → 阈值 = 15000
     - "使用平均值" → 统计方法 = 平均值
+    - "完成通道选择" → 状态驱动操作
     """
     try:
-        # 获取当前会话
+        # 延迟导入避免循环导入
+        from backend.api.routes.report_config import config_manager as report_config_manager
+        
+        # 先检查是否在ReportConfigManager中（状态驱动配置）
+        if request.session_id in report_config_manager.sessions:
+            # 使用状态驱动的ReportConfigManager
+            try:
+                config_response = report_config_manager.update_config(
+                    request.session_id,
+                    request.user_input,
+                    None
+                )
+                return UpdateConfigResponse(
+                    success=True,
+                    message=config_response.message,
+                    config=config_response.current_params,
+                    status=config_response.state,
+                    suggested_actions=config_response.suggested_actions or []
+                )
+            except ValueError as ve:
+                raise HTTPException(status_code=404, detail=str(ve))
+            except Exception as e:
+                logger.error(f"ReportConfigManager更新失败: {e}", exc_info=True)
+                import traceback
+                traceback.print_exc()
+                raise HTTPException(status_code=500, detail=f"更新配置失败: {str(e)}")
+        
+        # 否则使用旧的ConfigManager
         session = config_manager.get_session(request.session_id)
         if not session:
             raise HTTPException(status_code=404, detail="配置会话不存在")
@@ -132,7 +179,7 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                     config=config_response["config"],
                     status=config_response["status"],
                     suggested_actions=config_parser.get_suggested_actions(
-                        config_response["status"], 
+                        str(config_response["status"]).lower(), 
                         config_response["config"]
                     )
                 )
@@ -144,7 +191,11 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                     success=True,
                     message=parsed_action["message"],
                     config=complete_response["config"],
-                    status=complete_response["status"]
+                    status=complete_response["status"],
+                    suggested_actions=config_parser.get_suggested_actions(
+                        str(complete_response["status"]).lower(),
+                        complete_response["config"]
+                    )
                 )
             
             elif parsed_action["action"] == "cancel":
@@ -154,7 +205,11 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                     success=True,
                     message=parsed_action["message"],
                     config=cancel_response["config"],
-                    status=cancel_response["status"]
+                    status=cancel_response["status"],
+                    suggested_actions=config_parser.get_suggested_actions(
+                        str(cancel_response["status"]).lower(),
+                        cancel_response["config"]
+                    )
                 )
             
             elif parsed_action["action"] == "reset":
@@ -170,7 +225,11 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                         success=True,
                         message=parsed_action["message"],
                         config=default_config,
-                        status=ConfigStatus.CONFIGURING
+                        status=ConfigStatus.CONFIGURING,
+                        suggested_actions=config_parser.get_suggested_actions(
+                            str(ConfigStatus.CONFIGURING).lower(),
+                            default_config
+                        )
                     )
         
         else:
@@ -181,7 +240,7 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                 config=session["config"],
                 status=session["status"],
                 suggested_actions=config_parser.get_suggested_actions(
-                    session["status"], 
+                    str(session["status"]).lower(), 
                     session["config"]
                 )
             )
