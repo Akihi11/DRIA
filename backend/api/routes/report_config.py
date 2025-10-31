@@ -1195,30 +1195,62 @@ class ReportConfigManager:
     def _build_steady_state_config(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """构建稳态配置JSON，供后续计算模块使用"""
         trigger = params.get('triggerLogic', {})
+        combination = trigger.get('combination', 'AND')
         conditions: List[Dict[str, Any]] = []
-        if trigger.get('condition1', {}).get('enabled', True):
-            conditions.append({
-                "type": trigger.get('condition1', {}).get('type', '统计值'),
-                "channel": trigger.get('condition1', {}).get('channel'),
-                "statistic": trigger.get('condition1', {}).get('statistic', '平均值'),
-                "duration": trigger.get('condition1', {}).get('duration_sec', 1),
-                "logic": trigger.get('condition1', {}).get('logic', '大于'),
-                "threshold": trigger.get('condition1', {}).get('threshold', 0)
-            })
-        if trigger.get('condition2', {}).get('enabled', True):
-            conditions.append({
-                "type": trigger.get('condition2', {}).get('type', '变化幅度'),
-                "channel": trigger.get('condition2', {}).get('channel'),
-                "statistic": trigger.get('condition2', {}).get('statistic', '变化率'),
-                "duration": trigger.get('condition2', {}).get('duration_sec', 10),
-                "logic": trigger.get('condition2', {}).get('logic', '小于'),
-                "threshold": trigger.get('condition2', {}).get('threshold', 0)
-            })
+        
+        # 根据combination决定保存哪些条件
+        if combination == 'Cond1_Only':
+            # 仅用条件一
+            cond1 = trigger.get('condition1', {})
+            if cond1.get('enabled', True) and cond1.get('channel'):
+                conditions.append({
+                    "type": cond1.get('type', '统计值'),
+                    "channel": cond1.get('channel'),
+                    "statistic": cond1.get('statistic', '平均值'),
+                    "duration": cond1.get('duration_sec', 1),
+                    "logic": cond1.get('logic', '大于'),
+                    "threshold": cond1.get('threshold', 0)
+                })
+        elif combination == 'Cond2_Only':
+            # 仅用条件二
+            cond2 = trigger.get('condition2', {})
+            if cond2.get('enabled', True) and cond2.get('channel'):
+                conditions.append({
+                    "type": cond2.get('type', '变化幅度'),
+                    "channel": cond2.get('channel'),
+                    "statistic": cond2.get('statistic', '变化率'),
+                    "duration": cond2.get('duration_sec', 10),
+                    "logic": cond2.get('logic', '小于'),
+                    "threshold": cond2.get('threshold', 0)
+                })
+        elif combination == 'AND':
+            # 同时使用条件一和条件二
+            cond1 = trigger.get('condition1', {})
+            if cond1.get('enabled', True) and cond1.get('channel'):
+                conditions.append({
+                    "type": cond1.get('type', '统计值'),
+                    "channel": cond1.get('channel'),
+                    "statistic": cond1.get('statistic', '平均值'),
+                    "duration": cond1.get('duration_sec', 1),
+                    "logic": cond1.get('logic', '大于'),
+                    "threshold": cond1.get('threshold', 0)
+                })
+            cond2 = trigger.get('condition2', {})
+            if cond2.get('enabled', True) and cond2.get('channel'):
+                conditions.append({
+                    "type": cond2.get('type', '变化幅度'),
+                    "channel": cond2.get('channel'),
+                    "statistic": cond2.get('statistic', '变化率'),
+                    "duration": cond2.get('duration_sec', 10),
+                    "logic": cond2.get('logic', '小于'),
+                    "threshold": cond2.get('threshold', 0)
+                })
+        
         return {
             "reportConfig": {
                 "stableState": {
                     "displayChannels": params.get('displayChannels', []),
-                    "conditionLogic": trigger.get('combination', 'AND'),
+                    "conditionLogic": combination,
                     "conditions": conditions
                 }
             }

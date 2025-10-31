@@ -1,11 +1,13 @@
-import React from 'react'
-import { Button, Space, Tag } from 'antd'
+import React, { useState } from 'react'
+import { Button, Space, Tag, message as antdMessage } from 'antd'
 import { 
   UserOutlined, 
-  RobotOutlined
+  RobotOutlined,
+  DownloadOutlined
 } from '@ant-design/icons'
 import { Message } from '../../types/store'
 import FileAnalysisResult from '../FileAnalysis/FileAnalysisResult'
+import apiService from '../../services/api'
 
 interface MessageBubbleProps {
   message: Message
@@ -20,12 +22,37 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 }) => {
   const isUser = message.type === 'user'
   const isSystem = message.type === 'system'
+  const [downloading, setDownloading] = useState(false)
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString('zh-CN', { 
       hour: '2-digit', 
       minute: '2-digit' 
     })
+  }
+
+  const handleDownloadReport = async (reportId: string) => {
+    setDownloading(true)
+    try {
+      const blob = await apiService.downloadSteadyStateReport(reportId)
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `steady_state_report_${reportId}.xlsx`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+      antdMessage.success('报表下载成功')
+    } catch (error) {
+      console.error('Download error:', error)
+      antdMessage.error('报表下载失败')
+    } finally {
+      setDownloading(false)
+    }
   }
 
   const renderMessageContent = () => {
@@ -84,6 +111,28 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
     )
   }
 
+  const renderDownloadButton = () => {
+    const reportId = message.metadata?.reportId || message.metadata?.currentParams?.report_id
+    
+    if (!reportId) {
+      return null
+    }
+
+    return (
+      <div style={{ marginTop: 8 }}>
+        <Button
+          type="primary"
+          icon={<DownloadOutlined />}
+          onClick={() => handleDownloadReport(reportId)}
+          loading={downloading}
+          size="small"
+        >
+          下载报表
+        </Button>
+      </div>
+    )
+  }
+
   // 如果是系统消息且有文件分析结果，不显示头像和时间戳
   if (isSystem && message.metadata?.fileInfo?.analysis?.success) {
     return (
@@ -107,6 +156,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
         </div>
         
         {renderSuggestedActions()}
+        {renderDownloadButton()}
         
         <div className="message-metadata">
           <span className="message-time">{formatTime(message.timestamp)}</span>

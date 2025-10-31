@@ -125,6 +125,7 @@ const ChatPage: React.FC = () => {
       }
       
       // 添加响应消息
+      const reportId = data.config?.report_id
       const aiMessage: Message = {
         id: uuidv4(),
         type: 'ai',
@@ -132,7 +133,8 @@ const ChatPage: React.FC = () => {
         timestamp: new Date(),
         metadata: {
           configState: data.status,
-          currentParams: data.config
+          currentParams: data.config,
+          reportId: reportId  // 添加报表ID，用于下载
         }
       }
       

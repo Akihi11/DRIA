@@ -3,10 +3,12 @@
 """
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Optional
+from enum import Enum
 from pydantic import BaseModel, Field
 import logging
 import time
 import re
+import json
 
 # 导入服务
 import sys
@@ -443,13 +445,128 @@ async def update_config_dialogue(request: UpdateConfigRequest):
 @router.post("/complete-config", response_model=CompleteConfigResponse, summary="完成配置")
 async def complete_config_dialogue(request: CompleteConfigRequest):
     """
-    完成配置对话
+    完成配置对话 - 直接生成报表并退出配置模式
     
-    第一次点击：进入确认状态
-    第二次点击：真正完成配置，开始生成报表
+    用户点击"完成配置"按钮时：
+    1. 读取已保存的配置文件（JSON 文件）
+    2. 调用计算模块生成报表
+    3. 删除配置会话，退出配置模式
     """
     try:
-        config_response = await config_manager.complete_config(request.session_id)
+        # 首先检查是否在 ReportConfigManager 中（用于 steady_state 报表）
+        from backend.api.routes.report_config import config_manager as report_config_manager
+        
+        if request.session_id in report_config_manager.sessions:
+            # 使用 ReportConfigManager
+            session = report_config_manager.sessions.get(request.session_id)
+            
+            if not session:
+                raise ValueError("配置会话不存在")
+            
+            # 直接调用计算模块生成报表（不需要状态检查）
+            try:
+                # 1. 获取配置文件路径
+                backend_dir = Path(__file__).parent.parent.parent
+                config_dir = backend_dir / "config_sessions"
+                config_file_path = None
+                
+                # 查找对应的配置文件（通过 file_id 或使用 config_session.json）
+                file_id = session.get('file_id')
+                if file_id:
+                    # 查找匹配的配置文件（按修改时间排序，取最新的）
+                    matching_files = []
+                    for json_file in config_dir.glob("*.json"):
+                        try:
+                            with open(json_file, 'r', encoding='utf-8') as f:
+                                cfg = json.load(f)
+                                if cfg.get("fileId") == file_id:
+                                    matching_files.append((json_file.stat().st_mtime, json_file))
+                        except Exception:
+                            continue
+                    
+                    if matching_files:
+                        # 按修改时间排序，取最新的
+                        matching_files.sort(key=lambda x: x[0], reverse=True)
+                        config_file_path = matching_files[0][1]
+                
+                # 如果没找到，使用默认的 config_session.json
+                if config_file_path is None:
+                    default_path = config_dir / "config_session.json"
+                    if default_path.exists():
+                        config_file_path = default_path
+                    else:
+                        raise ValueError("找不到配置文件，请确保已保存配置")
+                
+                # 2. 获取输入数据文件路径
+                uploads_dir = backend_dir / "uploads"
+                input_file_path = None
+                
+                # 从配置文件中读取 fileId（UUID）或 sourceFileId
+                # 优先使用 fileId，因为上传后文件被重命名为 UUID 格式
+                with open(config_file_path, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+                    # 优先使用 fileId（UUID格式），如果没有则使用 sourceFileId
+                    file_id = config_data.get("fileId") or config_data.get("sourceFileId")
+                
+                if file_id:
+                    # 查找上传的文件（支持多种扩展名）
+                    # 如果 file_id 已经是 UUID（不含扩展名），直接拼接扩展名
+                    # 如果 file_id 是原始文件名（含扩展名），需要处理
+                    for ext in [".csv", ".xlsx", ".xls"]:
+                        # 如果 file_id 已经包含扩展名，尝试直接匹配
+                        if file_id.endswith(ext):
+                            candidate = uploads_dir / file_id
+                            if candidate.exists():
+                                input_file_path = candidate
+                                break
+                        # 否则尝试添加扩展名（UUID 格式的情况）
+                        candidate = uploads_dir / f"{file_id}{ext}"
+                        if candidate.exists():
+                            input_file_path = candidate
+                            break
+                
+                if not input_file_path or not input_file_path.exists():
+                    raise ValueError(f"找不到输入数据文件: {file_id}。请确认文件已上传到 uploads 目录。")
+                
+                # 3. 创建输出目录
+                import uuid
+                report_id = str(uuid.uuid4())
+                reports_dir = backend_dir / "reports" / report_id
+                reports_dir.mkdir(parents=True, exist_ok=True)
+                
+                # 4. 调用计算模块生成报表
+                from backend.services.steady_state_service import SteadyStateService
+                service = SteadyStateService()
+                report_path = service.generate_report(
+                    str(config_file_path),
+                    str(input_file_path),
+                    str(reports_dir)
+                )
+                
+                # 5. 删除配置会话，退出配置模式
+                del report_config_manager.sessions[request.session_id]
+                
+                logger.info(f"报表生成成功: {report_path}")
+                
+                return CompleteConfigResponse(
+                    success=True,
+                    message=f"报表生成成功！文件路径: {report_path}",
+                    config={"report_id": report_id, "report_path": report_path},
+                    status="completed"
+                )
+                
+            except Exception as calc_error:
+                logger.error(f"生成报表失败: {calc_error}", exc_info=True)
+                # 保持会话，允许用户重试
+                return CompleteConfigResponse(
+                    success=False,
+                    message=f"生成报表失败: {str(calc_error)}",
+                    config=session.get('params', {}),
+                    status="error"
+                )
+        else:
+            # 使用 ConfigManager（旧的配置管理器）
+            config_response = await config_manager.complete_config(request.session_id)
         
         return CompleteConfigResponse(
             success=True,
@@ -459,21 +576,36 @@ async def complete_config_dialogue(request: CompleteConfigRequest):
         )
         
     except Exception as e:
-        logger.error(f"完成配置失败: {e}")
+        logger.error(f"完成配置失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"完成配置失败: {str(e)}")
 
 @router.post("/cancel-config", response_model=CancelConfigResponse, summary="取消配置")
 async def cancel_config_dialogue(request: CancelConfigRequest):
     """
-    取消配置对话
+    取消配置对话 - 退出配置模式，不生成报表
     """
     try:
-        config_response = await config_manager.cancel_config(request.session_id)
+        # 首先检查是否在 ReportConfigManager 中（用于 steady_state 报表）
+        from backend.api.routes.report_config import config_manager as report_config_manager
         
-        return CancelConfigResponse(
-            success=True,
-            message=config_response["message"]
-        )
+        if request.session_id in report_config_manager.sessions:
+            # 使用 ReportConfigManager - 直接删除会话
+            del report_config_manager.sessions[request.session_id]
+            
+            logger.info(f"取消配置，会话已删除: {request.session_id}")
+            
+            return CancelConfigResponse(
+                success=True,
+                message="已取消配置，已退出配置模式"
+            )
+        else:
+            # 使用 ConfigManager（旧的配置管理器）
+            config_response = await config_manager.cancel_config(request.session_id)
+            
+            return CancelConfigResponse(
+                success=True,
+                message=config_response["message"]
+            )
         
     except Exception as e:
         logger.error(f"取消配置失败: {e}")

@@ -112,6 +112,17 @@ class ApiService {
     return response.data
   }
 
+  // Download steady state report
+  async downloadSteadyStateReport(reportId: string): Promise<Blob> {
+    const response: AxiosResponse<Blob> = await this.client.get(
+      `/reports/steady_state/${reportId}/download`,
+      {
+        responseType: 'blob',
+      }
+    )
+    return response.data
+  }
+
   // Get file info
   async getFileInfo(fileId: string): Promise<FileUploadResponse> {
     const response: AxiosResponse<FileUploadResponse> = await this.client.get(

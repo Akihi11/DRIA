@@ -36,6 +36,7 @@ export interface MessageMetadata {
   configState?: string
   currentParams?: any
   sessionId?: string
+  reportId?: string  // 报表ID，用于下载
 }
 
 // Report Types
