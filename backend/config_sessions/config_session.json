@@ -1,8 +1,8 @@
 {
   "sourceFileId": "Simulated_Data2.csv",
-  "fileId": "6af15d23-203c-4a8c-87b1-7d1a0ab7426b",
-  "configFileName": "20251029174705263.json",
-  "uploadTime": "2025-10-29T17:47:05.263195",
+  "fileId": "ac163a74-7ef5-4329-b6c2-9ed44940631f",
+  "configFileName": "config_session.json",
+  "uploadTime": "2025-10-31T18:15:31.269412",
   "channels": [
     {
       "channel_name": "系统电流",
@@ -97,19 +97,28 @@
   ],
   "reportConfig": {
     "sections": [],
-    "steadyState": {
+    "stableState": {
       "displayChannels": [
-        "Np",
-        "Ng",
         "排气温度",
-        "滑油压力"
-      ]
+        "滑油压力",
+        "Ng"
+      ],
+      "conditions": [
+        {
+          "type": "amplitude_change",
+          "channel": "Ng",
+          "duration": 5,
+          "logic": "<",
+          "threshold": 50
+        }
+      ],
+      "conditionLogic": "Cond2_Only"
     }
   },
   "reportType": "稳态分析",
   "history": [
     {
-      "timestamp": "2025-10-29T17:47:06.900244",
+      "timestamp": "2025-10-31T18:15:32.781980",
       "action": "set_report_type",
       "value": "稳态分析"
     }

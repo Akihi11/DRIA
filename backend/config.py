@@ -109,6 +109,109 @@ class Settings:
     def is_provider_available(self, provider: str) -> bool:
         """检查指定提供商是否可用"""
         return provider in self.get_available_providers()
+    
+    def get_llm_config(self, provider: str = None):
+        """从settings创建LLMConfig对象"""
+        from backend.llm import LLMConfig, ModelProvider
+        
+        provider = provider or self.DEFAULT_LLM_PROVIDER
+        provider = provider.lower()
+        
+        # 从环境变量读取通用参数，如果没有则使用默认值
+        temperature = float(os.getenv("LLM_TEMPERATURE", "0.7"))
+        max_tokens = int(os.getenv("LLM_MAX_TOKENS", "2048"))
+        
+        if provider == "openai":
+            return LLMConfig(
+                provider=ModelProvider.OPENAI,
+                model_name=self.OPENAI_MODEL,
+                api_key=self.OPENAI_API_KEY,
+                base_url=self.OPENAI_BASE_URL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=30.0
+            )
+        elif provider == "deepseek":
+            return LLMConfig(
+                provider=ModelProvider.DEEPSEEK,
+                model_name=self.DEEPSEEK_MODEL,
+                api_key=self.DEEPSEEK_API_KEY,
+                base_url=self.DEEPSEEK_BASE_URL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=30.0
+            )
+        elif provider == "kimi":
+            return LLMConfig(
+                provider=ModelProvider.KIMI,
+                model_name=self.KIMI_MODEL,
+                api_key=self.KIMI_API_KEY,
+                base_url=self.KIMI_BASE_URL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=30.0
+            )
+        elif provider == "qwen":
+            return LLMConfig(
+                provider=ModelProvider.QWEN,
+                model_name=self.QWEN_MODEL,
+                api_key=self.QWEN_API_KEY,
+                base_url=self.QWEN_BASE_URL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=30.0
+            )
+        elif provider == "anthropic":
+            return LLMConfig(
+                provider=ModelProvider.ANTHROPIC,
+                model_name=self.ANTHROPIC_MODEL,
+                api_key=self.ANTHROPIC_API_KEY,
+                base_url=self.ANTHROPIC_BASE_URL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=30.0
+            )
+        elif provider == "google":
+            return LLMConfig(
+                provider=ModelProvider.GOOGLE,
+                model_name=self.GOOGLE_MODEL,
+                api_key=self.GOOGLE_API_KEY,
+                base_url=self.GOOGLE_BASE_URL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=30.0
+            )
+        elif provider == "azure":
+            return LLMConfig(
+                provider=ModelProvider.AZURE,
+                model_name=self.AZURE_MODEL,
+                api_key=self.AZURE_API_KEY,
+                base_url=self.AZURE_BASE_URL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=30.0
+            )
+        elif provider == "local":
+            return LLMConfig(
+                provider=ModelProvider.LOCAL,
+                model_name=self.LOCAL_MODEL,
+                api_key=self.LOCAL_API_KEY,
+                base_url=self.LOCAL_BASE_URL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=30.0
+            )
+        else:
+            # 默认使用DeepSeek
+            return LLMConfig(
+                provider=ModelProvider.DEEPSEEK,
+                model_name=self.DEEPSEEK_MODEL,
+                api_key=self.DEEPSEEK_API_KEY,
+                base_url=self.DEEPSEEK_BASE_URL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=30.0
+            )
 
 # Global settings instance
 settings = Settings()

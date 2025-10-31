@@ -29,92 +29,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# 创建LLM配置
-def get_llm_config(provider: str = "deepseek"):
-    """获取LLM配置"""
-    provider = provider.lower()
-    
-    if provider == "openai":
-        return LLMConfig(
-            provider=ModelProvider.OPENAI,
-            model_name=settings.OPENAI_MODEL,
-            api_key=settings.OPENAI_API_KEY,
-            base_url=settings.OPENAI_BASE_URL,
-            temperature=float(os.getenv("LLM_TEMPERATURE", "0.7")),
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
-            timeout=30.0
-        )
-    elif provider == "anthropic":
-        return LLMConfig(
-            provider=ModelProvider.ANTHROPIC,
-            model_name=settings.ANTHROPIC_MODEL,
-            api_key=settings.ANTHROPIC_API_KEY,
-            base_url=settings.ANTHROPIC_BASE_URL,
-            temperature=float(os.getenv("LLM_TEMPERATURE", "0.7")),
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
-            timeout=30.0
-        )
-    elif provider == "google":
-        return LLMConfig(
-            provider=ModelProvider.GOOGLE,
-            model_name=settings.GOOGLE_MODEL,
-            api_key=settings.GOOGLE_API_KEY,
-            base_url=settings.GOOGLE_BASE_URL,
-            temperature=float(os.getenv("LLM_TEMPERATURE", "0.7")),
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
-            timeout=30.0
-        )
-    elif provider == "azure":
-        return LLMConfig(
-            provider=ModelProvider.AZURE,
-            model_name=settings.AZURE_MODEL,
-            api_key=settings.AZURE_API_KEY,
-            base_url=settings.AZURE_BASE_URL,
-            temperature=float(os.getenv("LLM_TEMPERATURE", "0.7")),
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
-            timeout=30.0
-        )
-    elif provider == "local":
-        return LLMConfig(
-            provider=ModelProvider.LOCAL,
-            model_name=settings.LOCAL_MODEL,
-            api_key=settings.LOCAL_API_KEY,
-            base_url=settings.LOCAL_BASE_URL,
-            temperature=float(os.getenv("LLM_TEMPERATURE", "0.7")),
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
-            timeout=30.0
-        )
-    elif provider == "qwen":
-        return LLMConfig(
-            provider=ModelProvider.QWEN,
-            model_name=settings.QWEN_MODEL,
-            api_key=settings.QWEN_API_KEY,
-            base_url=settings.QWEN_BASE_URL,
-            temperature=float(os.getenv("LLM_TEMPERATURE", "0.7")),
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
-            timeout=30.0
-        )
-    elif provider == "kimi":
-        return LLMConfig(
-            provider=ModelProvider.KIMI,
-            model_name=settings.KIMI_MODEL,
-            api_key=settings.KIMI_API_KEY,
-            base_url=settings.KIMI_BASE_URL,
-            temperature=float(os.getenv("LLM_TEMPERATURE", "0.7")),
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
-            timeout=30.0
-        )
-    else:  # 默认使用DeepSeek
-        return LLMConfig(
-            provider=ModelProvider.DEEPSEEK,
-            model_name=settings.DEEPSEEK_MODEL,
-            api_key=settings.DEEPSEEK_API_KEY,
-            base_url=settings.DEEPSEEK_BASE_URL,
-            temperature=float(os.getenv("LLM_TEMPERATURE", "0.7")),
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2048")),
-            timeout=30.0
-        )
-
 @router.post("/ai_report/dialogue", response_model=DialogueResponse, summary="AI对话接口")
 async def process_dialogue(request: DialogueRequest):
     """
@@ -264,7 +178,7 @@ def parse_user_input_to_action(user_input: str, current_state: str, current_para
 async def handle_config_help_dialogue(request: DialogueRequest, config_session: Dict) -> DialogueResponse:
     """在配置模式下提供智能帮助"""
     provider = getattr(request, 'provider', None) or settings.DEFAULT_LLM_PROVIDER
-    config = get_llm_config(provider)
+    config = settings.get_llm_config(provider)
     
     # 构建包含配置上下文的系统提示
     system_prompt = f"""你是一个AI助手，当前用户正在配置{config_session['report_type']}报表。
@@ -318,7 +232,7 @@ async def handle_config_help_dialogue(request: DialogueRequest, config_session: 
 async def handle_normal_dialogue(request: DialogueRequest) -> DialogueResponse:
     """处理普通对话请求"""
     provider = getattr(request, 'provider', None) or settings.DEFAULT_LLM_PROVIDER
-    config = get_llm_config(provider)
+    config = settings.get_llm_config(provider)
     
     # 准备消息 - 使用更温和的系统提示
     messages = [

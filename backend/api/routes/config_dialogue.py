@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 import logging
 import time
+import re
 
 # 导入服务
 import sys
@@ -114,6 +115,133 @@ async def start_config_dialogue(request: StartConfigRequest):
         logger.error(f"开始配置对话失败: {e}")
         raise HTTPException(status_code=500, detail=f"开始配置失败: {str(e)}")
 
+def _is_explicit_button_action(user_input: str) -> bool:
+    """
+    判断是否是明确的按钮操作（不需要LLM解析）
+    
+    明确的按钮操作包括：
+    - "选择 xxx" (通道选择阶段)
+    - "使用 xxx" (通道选择阶段)
+    - "完成通道选择" / "完成选择"
+    - "仅用条件一" / "仅用条件二" / "AND" (组合逻辑选择)
+    - "返回修改通道"
+    - "确认配置" / "确认" / "完成" / "好了"
+    - "确认生成" / "修改配置" / "取消配置"
+    
+    注意：参数修改操作（如"阈值改为2000"）不是明确的按钮操作，
+    应该作为自然语言输入通过LLM解析，因为参数配置阶段应该用自然语言对话。
+    """
+    user_input = user_input.strip()
+    
+    # 明确的按钮操作模式（只包括结构化的操作，不包括参数修改）
+    explicit_patterns = [
+        r'^选择\s+',  # "选择 xxx" (通道选择)
+        r'^使用\s+',  # "使用 xxx" (通道选择)
+        r'^完成通道选择$',
+        r'^完成选择$',
+        r'^仅用条件一$',
+        r'^仅用条件二$',
+        r'^AND$',
+        r'^返回修改通道$',
+        r'^确认配置$',
+        r'^确认$',
+        r'^完成$',
+        r'^好了$',
+        r'^确认生成$',
+        r'^修改配置$',
+        r'^取消配置$',
+    ]
+    
+    for pattern in explicit_patterns:
+        if re.match(pattern, user_input, re.IGNORECASE):
+            return True
+    
+    return False
+
+def _parse_natural_language_fallback(user_input: str) -> Dict[str, Any]:
+    """
+    当LLM解析失败时，使用规则匹配作为fallback解析自然语言输入
+    
+    支持解析的参数修改：
+    - "阈值改为100" / "阈值改成100" / "把阈值改为100" -> action="修改阈值", value=100
+    - "统计方法改为最大值" / "修改统计方法为最大值" -> action="修改统计方法", value="最大值"
+    - "持续时长改为5秒" / "设置持续时长为5" -> action="修改持续时长", value=5
+    - "判据改为大于" / "修改判据为大于" -> action="修改判据", value="大于"
+    """
+    user_input = user_input.strip()
+    result = {}
+    
+    # 解析阈值修改
+    if '阈值' in user_input or 'threshold' in user_input.lower():
+        numbers = re.findall(r'\d+', user_input)
+        if numbers:
+            result['action'] = '修改阈值'
+            result['value'] = int(numbers[0])
+            return result
+    
+    # 解析统计方法修改
+    if any(keyword in user_input for keyword in ['统计', '方法', '计算']):
+        if '平均' in user_input:
+            result['action'] = '修改统计方法'
+            result['value'] = '平均值'
+            return result
+        elif '最大' in user_input:
+            result['action'] = '修改统计方法'
+            result['value'] = '最大值'
+            return result
+        elif '最小' in user_input:
+            result['action'] = '修改统计方法'
+            result['value'] = '最小值'
+            return result
+        elif '中位' in user_input:
+            result['action'] = '修改统计方法'
+            result['value'] = '中位数'
+            return result
+    
+    # 解析持续时长修改
+    if any(keyword in user_input for keyword in ['持续时长', '持续时间', '时长']):
+        numbers = re.findall(r'\d+', user_input)
+        if numbers:
+            result['action'] = '修改持续时长'
+            result['value'] = int(numbers[0])
+            return result
+    
+    # 解析判据逻辑修改
+    if '判据' in user_input or '逻辑' in user_input:
+        if '大于' in user_input:
+            if '等于' in user_input:
+                result['action'] = '修改判据'
+                result['value'] = '大于等于'
+            else:
+                result['action'] = '修改判据'
+                result['value'] = '大于'
+            return result
+        elif '小于' in user_input:
+            if '等于' in user_input:
+                result['action'] = '修改判据'
+                result['value'] = '小于等于'
+            else:
+                result['action'] = '修改判据'
+                result['value'] = '小于'
+            return result
+    
+    # 解析确认操作
+    if any(keyword in user_input for keyword in ['确认', '完成', '好了', '可以']):
+        if '生成' in user_input:
+            result['action'] = '确认生成'
+        elif '配置' in user_input:
+            result['action'] = '确认配置'
+        else:
+            result['action'] = '确认配置'
+        return result
+    
+    # 解析取消操作
+    if any(keyword in user_input for keyword in ['取消', '退出', '不要', '算了']):
+        result['action'] = '取消配置'
+        return result
+    
+    return result
+
 @router.post("/update-config", response_model=UpdateConfigResponse, summary="更新配置参数")
 async def update_config_dialogue(request: UpdateConfigRequest):
     """
@@ -124,6 +252,9 @@ async def update_config_dialogue(request: UpdateConfigRequest):
     - "阈值改成15000" → 阈值 = 15000
     - "使用平均值" → 统计方法 = 平均值
     - "完成通道选择" → 状态驱动操作
+    
+    对于明确的按钮操作，直接使用规则匹配，不调用LLM
+    只有在规则匹配失败时，才尝试使用LLM解析（但捕获异常避免影响明确操作）
     """
     try:
         # 延迟导入避免循环导入
@@ -133,10 +264,68 @@ async def update_config_dialogue(request: UpdateConfigRequest):
         if request.session_id in report_config_manager.sessions:
             # 使用状态驱动的ReportConfigManager
             try:
+                session = report_config_manager.sessions.get(request.session_id)
+                params = session.get("params", {}) if session else {}
+                
+                parsed_by_llm = False
+                action = None
+                value = None
+                
+                # 判断是否是明确的按钮操作
+                is_explicit_action = _is_explicit_button_action(request.user_input)
+                
+                if is_explicit_action:
+                    # 明确的按钮操作：直接使用规则匹配，不调用LLM
+                    logger.info(f"[明确按钮操作] utterance: {request.user_input}, 使用规则匹配")
+                    action = request.user_input
+                    # 尝试从action中提取数值（如"阈值改为2000"）
+                    match = re.search(r'(\d+)', request.user_input)
+                    if match:
+                        value = int(match.group(1))
+                else:
+                    # 不是明确的按钮操作：先尝试LLM解析，失败后使用规则匹配fallback
+                    action = request.user_input
+                    
+                    # 尝试使用LLM解析自然语言输入（但捕获异常避免影响明确操作）
+                    try:
+                        from backend.api.routes.report_config import parse_config_intent_with_llm
+                        intent = await parse_config_intent_with_llm(request.user_input, params)
+                        
+                        if intent.get("action") and intent.get("action").strip():
+                            action = intent["action"]
+                            parsed_by_llm = True
+                            logger.info(f"[LLM解析成功] utterance: {request.user_input}, action: {action}, value: {intent.get('value')}")
+                            if "value" in intent:
+                                value = intent["value"]
+                        else:
+                            # LLM返回空结果，尝试规则匹配fallback
+                            logger.info(f"[LLM解析返回空] utterance: {request.user_input}, 使用fallback规则解析")
+                            fallback_result = _parse_natural_language_fallback(request.user_input)
+                            if fallback_result.get("action"):
+                                action = fallback_result["action"]
+                                if "value" in fallback_result:
+                                    value = fallback_result["value"]
+                                logger.info(f"[规则匹配成功] utterance: {request.user_input}, action: {action}, value: {value}")
+                            else:
+                                logger.warning(f"[规则匹配失败] utterance: {request.user_input}, 无法解析")
+                    except Exception as llm_error:
+                        # LLM解析失败（如502错误），使用规则匹配作为fallback
+                        logger.warning(f"[LLM解析异常] utterance: {request.user_input}, 错误: {llm_error}, 使用规则匹配fallback")
+                        fallback_result = _parse_natural_language_fallback(request.user_input)
+                        if fallback_result.get("action"):
+                            action = fallback_result["action"]
+                            if "value" in fallback_result:
+                                value = fallback_result["value"]
+                            logger.info(f"[规则匹配成功] utterance: {request.user_input}, action: {action}, value: {value}")
+                        else:
+                            logger.warning(f"[规则匹配失败] utterance: {request.user_input}, 无法解析")
+                
+                # 调用update_config，传入解析后的action和value
                 config_response = report_config_manager.update_config(
                     request.session_id,
-                    request.user_input,
-                    None
+                    action,
+                    value,
+                    parsed_by_llm=parsed_by_llm
                 )
                 return UpdateConfigResponse(
                     success=True,

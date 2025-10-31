@@ -229,10 +229,35 @@ class LLMClient:
                         await asyncio.sleep(delay)
                         continue
                 
+                # 处理服务器错误（5xx），包括502 Bad Gateway等临时性错误
+                if 500 <= e.response.status_code < 600:
+                    if attempt < self.config.max_retries:
+                        delay = self.config.retry_delay * (2 ** attempt)
+                        logger.warning(f"Server error {e.response.status_code}, retrying in {delay}s...")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        # 所有重试都失败，记录总结信息
+                        response_text = e.response.text.strip() if e.response.text else "无响应内容"
+                        error_msg = f"服务器错误 {e.response.status_code}: {response_text} (已重试 {self.config.max_retries} 次均失败)"
+                        logger.error(error_msg)
+                        error_data = {
+                            "error": error_msg,
+                            "code": str(e.response.status_code),
+                            "details": {
+                                "status_code": e.response.status_code,
+                                "retries": self.config.max_retries,
+                                "response_text": response_text
+                            }
+                        }
+                        raise LLMError(**error_data)
+                
+                # 处理其他HTTP错误（非400、429、5xx）
+                response_text = e.response.text.strip() if e.response.text else "无响应内容"
                 error_data = {
-                    "error": f"HTTP {e.response.status_code}: {e.response.text}",
+                    "error": f"HTTP {e.response.status_code}: {response_text}",
                     "code": str(e.response.status_code),
-                    "details": {"status_code": e.response.status_code}
+                    "details": {"status_code": e.response.status_code, "response_text": response_text}
                 }
                 raise LLMError(**error_data)
                 

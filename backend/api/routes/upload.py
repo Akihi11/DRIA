@@ -39,6 +39,9 @@ def is_allowed_file(filename: str) -> bool:
     file_ext = Path(filename).suffix.lower()
     return file_ext in ALLOWED_EXTENSIONS
 
+# 配置唯一化
+CONFIG_PATH = parent_dir / "config_sessions" / "config_session.json"
+
 @router.post("/ai_report/upload", summary="文件上传接口")
 async def upload_file(file: UploadFile = File(...)):
     """
@@ -112,7 +115,7 @@ async def upload_file(file: UploadFile = File(...)):
             # upload.py 位于 backend/api/routes/upload.py
             # __file__ 的 parent.parent.parent 就是 backend 目录
             # 但也可以使用代码中已定义的 parent_dir（第16行已计算好）
-            config_dir = parent_dir / "config_sessions"
+            config_dir = CONFIG_PATH.parent
             
             print(f"[DEBUG] parent_dir (backend): {parent_dir.absolute()}")
             print(f"[DEBUG] config_dir: {config_dir.absolute()}")
@@ -120,11 +123,11 @@ async def upload_file(file: UploadFile = File(...)):
             config_dir.mkdir(parents=True, exist_ok=True)
             
             # 使用年月日时分秒毫秒格式命名：YYYYMMDDHHmmssSSS.json（添加毫秒避免同一秒内冲突）
-            timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]  # %f是微秒，取前3位即毫秒
-            config_filename = f"{timestamp_str}.json"
-            config_path = config_dir / config_filename
+            # timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]  # %f是微秒，取前3位即毫秒
+            # config_filename = f"{timestamp_str}.json"
+            # config_path = config_dir / config_filename
             
-            print(f"[DEBUG] config_path: {config_path.absolute()}")
+            print(f"[DEBUG] config_path: {CONFIG_PATH.absolute()}")
             
             # 确保分析结果有数据
             print(f"[DEBUG] analysis_result success: {analysis_result.get('success', False)}")
@@ -168,7 +171,7 @@ async def upload_file(file: UploadFile = File(...)):
             config_content = {
                 "sourceFileId": file.filename,
                 "fileId": file_id,  # 保存原始的UUID格式file_id
-                "configFileName": config_filename,  # 保存配置文件名（时间戳格式）
+                "configFileName": "config_session.json",  # 保存配置文件名（时间戳格式）
                 "uploadTime": response_data["upload_time"],
                 "channels": channels_data,
                 "reportConfig": {
@@ -176,15 +179,15 @@ async def upload_file(file: UploadFile = File(...)):
                 }
             }
 
-            with config_path.open("w", encoding="utf-8") as f:
+            with CONFIG_PATH.open("w", encoding="utf-8") as f:
                 json.dump(config_content, f, ensure_ascii=False, indent=2)
             
-            logger.info(f"✅ 已创建配置文件: {config_path}")
-            print(f"[SUCCESS] ✅ 已创建配置文件: {config_path.absolute()}")
-            print(f"[SUCCESS] 文件大小: {config_path.stat().st_size} bytes")
+            logger.info(f"✅ 已创建配置文件: {CONFIG_PATH}")
+            print(f"[SUCCESS] ✅ 已创建配置文件: {CONFIG_PATH.absolute()}")
+            print(f"[SUCCESS] 文件大小: {CONFIG_PATH.stat().st_size} bytes")
             
             # 验证文件是否真的创建成功
-            if config_path.exists():
+            if CONFIG_PATH.exists():
                 print(f"[SUCCESS] 文件验证：存在")
             else:
                 print(f"[ERROR] 文件验证失败：文件不存在！")
@@ -284,22 +287,13 @@ async def update_upload_meta_report_type(file_id: str, report_type: str = Form(.
     """
     try:
         # 使用 backend/config_sessions/ 目录
-        backend_dir = Path(__file__).resolve().parent.parent.parent
-        config_dir = backend_dir / "config_sessions"
+        # backend_dir = Path(__file__).resolve().parent.parent.parent
+        # config_dir = backend_dir / "config_sessions"
         
         # 通过fileId查找对应的JSON文件
-        config_path = None
-        for json_file in config_dir.glob("*.json"):
-            try:
-                with open(json_file, 'r', encoding='utf-8') as f:
-                    cfg = json.load(f)
-                    if cfg.get("fileId") == file_id:
-                        config_path = json_file
-                        break
-            except Exception:
-                continue
+        config_path = CONFIG_PATH
         
-        if not config_path or not config_path.exists():
+        if not config_path.exists():
             raise HTTPException(status_code=404, detail="配置文件不存在，请先上传文件")
 
         # 读取现有配置
