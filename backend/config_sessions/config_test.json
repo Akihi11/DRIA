@@ -98,22 +98,31 @@
   "reportConfig": {
     "stableState": {
       "displayChannels": [
-        "Ng",
-        "排气温度",
+        "系统电流",
+        "系统电压",
         "滑油压力",
-        "系统电压"
+        "排气温度",
+        "Ng",
+        "Np"
       ],
-      "conditionLogic": "Cond1_Only",
       "conditions": [
         {
-          "type": "统计值",
-          "channel": "Ng",
-          "statistic": "最大值",
+          "type": "statistic",
+          "channel": "Np",
+          "statistic": "最小值",
           "duration": 1,
-          "logic": "大于",
+          "logic": "<",
           "threshold": 2000
+        },
+        {
+          "type": "amplitude_change",
+          "channel": "排气温度",
+          "duration": 1,
+          "logic": ">",
+          "threshold": 200
         }
-      ]
+      ],
+      "conditionLogic": "AND"
     }
   },
   "reportType": "稳态分析",

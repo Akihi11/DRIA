@@ -29,12 +29,15 @@ const FileAnalysisResult: React.FC<FileAnalysisResultProps> = ({
   timestamp
 }) => {
   const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0B'
+    if (!bytes || bytes === 0) return ''
     const k = 1024
     const sizes = ['B', 'KB', 'MB', 'GB']
+    if (bytes < k) {
+      return bytes + ' ' + sizes[0]
+    }
     const i = Math.floor(Math.log(bytes) / Math.log(k))
     const size = parseFloat((bytes / Math.pow(k, i)).toFixed(2))
-    return size + sizes[i]
+    return size + ' ' + sizes[i]
   }
 
   const formatTime = (date: Date) => {
@@ -68,7 +71,7 @@ const FileAnalysisResult: React.FC<FileAnalysisResultProps> = ({
         </Text>
         {fileSize && (
           <Text style={{ fontSize: '12px', color: '#999', marginLeft: '4px' }}>
-            ({formatFileSize(fileSize)})
+            {formatFileSize(fileSize)}
           </Text>
         )}
       </div>

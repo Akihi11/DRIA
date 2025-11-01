@@ -70,10 +70,13 @@ async def generate_steady_state_report(request: SteadyStateRequest):
         
         # 2. 创建临时配置文件
         report_id = str(uuid.uuid4())
-        output_dir = parent_dir / "reports" / report_id
-        output_dir.mkdir(parents=True, exist_ok=True)
+        reports_dir = parent_dir / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
         
-        config_path = output_dir / "config.json"
+        # 创建临时目录用于存储配置文件
+        temp_config_dir = reports_dir / report_id
+        temp_config_dir.mkdir(parents=True, exist_ok=True)
+        config_path = temp_config_dir / "config.json"
         config = {
             "reportConfig": {
                 "stableState": {
@@ -112,11 +115,13 @@ async def generate_steady_state_report(request: SteadyStateRequest):
             json.dump(config, f, ensure_ascii=False, indent=2)
         
         # 3. 调用服务生成报表
+        # 新格式：reports/steady_state_report-{uuid}.xlsx
+        report_file_path = reports_dir / f"steady_state_report-{report_id}.xlsx"
         service = SteadyStateService()
         report_path = service.generate_report(
             str(config_path),
             str(file_path),
-            str(output_dir)
+            str(report_file_path)
         )
         
         # 4. 返回结果
@@ -141,8 +146,9 @@ async def download_steady_state_report(report_id: str):
     - **report_id**: 报表ID
     """
     try:
-        reports_dir = parent_dir / "reports" / report_id
-        report_file = reports_dir / "steady_state_report.xlsx"
+        # 新格式：reports/steady_state_report-{uuid}.xlsx
+        reports_dir = parent_dir / "reports"
+        report_file = reports_dir / f"steady_state_report-{report_id}.xlsx"
         
         if not report_file.exists():
             raise HTTPException(status_code=404, detail="报表文件不存在")
@@ -150,7 +156,7 @@ async def download_steady_state_report(report_id: str):
         from fastapi.responses import FileResponse
         return FileResponse(
             path=str(report_file),
-            filename=f"steady_state_report_{report_id}.xlsx",
+            filename=f"steady_state_report-{report_id}.xlsx",
             media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
         

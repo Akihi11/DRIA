@@ -78,6 +78,7 @@ class ApiService {
       file_id: data.file_id,
       filename: data.filename,
       size: data.file_size || data.size,  // Support both field names
+      file_size: data.file_size || data.size,  // Also include file_size for component compatibility
       upload_time: data.upload_time,
       available_channels: data.available_channels || []
     }

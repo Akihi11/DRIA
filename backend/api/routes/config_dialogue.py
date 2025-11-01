@@ -166,37 +166,147 @@ def _parse_natural_language_fallback(user_input: str) -> Dict[str, Any]:
     
     支持解析的参数修改：
     - "阈值改为100" / "阈值改成100" / "把阈值改为100" -> action="修改阈值", value=100
+    - "把条件一的阈值改为100" -> action="修改条件一阈值", value=100
     - "统计方法改为最大值" / "修改统计方法为最大值" -> action="修改统计方法", value="最大值"
     - "持续时长改为5秒" / "设置持续时长为5" -> action="修改持续时长", value=5
     - "判据改为大于" / "修改判据为大于" -> action="修改判据", value="大于"
+    
+    支持多个参数：
+    - "统计方法改为最大值，阈值改为1667" -> {"actions": [{"action": "修改统计方法", "value": "最大值"}, {"action": "修改阈值", "value": 1667}]}
     """
     user_input = user_input.strip()
+    
+    # 检查是否包含多个参数（通过逗号分隔）
+    if '，' in user_input or ',' in user_input:
+        # 分割成多个部分
+        parts = re.split(r'[，,]\s*', user_input)
+        actions = []
+        condition_prefix = ""
+        
+        # 检查是否有条件前缀
+        if '条件一' in user_input or '条件1' in user_input or 'condition1' in user_input.lower():
+            condition_prefix = "条件一"
+        elif '条件二' in user_input or '条件2' in user_input or 'condition2' in user_input.lower():
+            condition_prefix = "条件二"
+        
+        # 解析每个部分
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            
+            # 解析阈值修改
+            if '阈值' in part or 'threshold' in part.lower():
+                numbers = re.findall(r'\d+', part)
+                if numbers:
+                    actions.append({
+                        'action': f'修改{condition_prefix}阈值' if condition_prefix else '修改阈值',
+                        'value': int(numbers[0])
+                    })
+                    continue
+            
+            # 解析统计方法修改
+            if any(keyword in part for keyword in ['统计', '方法', '计算']):
+                if '平均' in part:
+                    actions.append({
+                        'action': f'修改{condition_prefix}统计方法' if condition_prefix else '修改统计方法',
+                        'value': '平均值'
+                    })
+                    continue
+                elif '最大' in part:
+                    actions.append({
+                        'action': f'修改{condition_prefix}统计方法' if condition_prefix else '修改统计方法',
+                        'value': '最大值'
+                    })
+                    continue
+                elif '最小' in part:
+                    actions.append({
+                        'action': f'修改{condition_prefix}统计方法' if condition_prefix else '修改统计方法',
+                        'value': '最小值'
+                    })
+                    continue
+                elif '中位' in part:
+                    actions.append({
+                        'action': f'修改{condition_prefix}统计方法' if condition_prefix else '修改统计方法',
+                        'value': '中位数'
+                    })
+                    continue
+            
+            # 解析持续时长修改
+            if any(keyword in part for keyword in ['持续时长', '持续时间', '时长']):
+                numbers = re.findall(r'\d+', part)
+                if numbers:
+                    actions.append({
+                        'action': f'修改{condition_prefix}持续时长' if condition_prefix else '修改持续时长',
+                        'value': int(numbers[0])
+                    })
+                    continue
+            
+            # 解析判据逻辑修改
+            if '判据' in part or '逻辑' in part:
+                if '大于' in part:
+                    if '等于' in part:
+                        actions.append({
+                            'action': f'修改{condition_prefix}判据' if condition_prefix else '修改判据',
+                            'value': '大于等于'
+                        })
+                    else:
+                        actions.append({
+                            'action': f'修改{condition_prefix}判据' if condition_prefix else '修改判据',
+                            'value': '大于'
+                        })
+                    continue
+                elif '小于' in part:
+                    if '等于' in part:
+                        actions.append({
+                            'action': f'修改{condition_prefix}判据' if condition_prefix else '修改判据',
+                            'value': '小于等于'
+                        })
+                    else:
+                        actions.append({
+                            'action': f'修改{condition_prefix}判据' if condition_prefix else '修改判据',
+                            'value': '小于'
+                        })
+                    continue
+        
+        # 如果成功解析了多个操作，返回actions格式
+        if len(actions) > 0:
+            return {"actions": actions}
+    
+    # 单个参数解析（原有逻辑）
     result = {}
+    
+    # 检查是否包含"条件一"或"条件二"
+    condition_prefix = ""
+    if '条件一' in user_input or '条件1' in user_input or 'condition1' in user_input.lower():
+        condition_prefix = "条件一"
+    elif '条件二' in user_input or '条件2' in user_input or 'condition2' in user_input.lower():
+        condition_prefix = "条件二"
     
     # 解析阈值修改
     if '阈值' in user_input or 'threshold' in user_input.lower():
         numbers = re.findall(r'\d+', user_input)
         if numbers:
-            result['action'] = '修改阈值'
+            result['action'] = f'修改{condition_prefix}阈值' if condition_prefix else '修改阈值'
             result['value'] = int(numbers[0])
             return result
     
     # 解析统计方法修改
     if any(keyword in user_input for keyword in ['统计', '方法', '计算']):
         if '平均' in user_input:
-            result['action'] = '修改统计方法'
+            result['action'] = f'修改{condition_prefix}统计方法' if condition_prefix else '修改统计方法'
             result['value'] = '平均值'
             return result
         elif '最大' in user_input:
-            result['action'] = '修改统计方法'
+            result['action'] = f'修改{condition_prefix}统计方法' if condition_prefix else '修改统计方法'
             result['value'] = '最大值'
             return result
         elif '最小' in user_input:
-            result['action'] = '修改统计方法'
+            result['action'] = f'修改{condition_prefix}统计方法' if condition_prefix else '修改统计方法'
             result['value'] = '最小值'
             return result
         elif '中位' in user_input:
-            result['action'] = '修改统计方法'
+            result['action'] = f'修改{condition_prefix}统计方法' if condition_prefix else '修改统计方法'
             result['value'] = '中位数'
             return result
     
@@ -204,7 +314,7 @@ def _parse_natural_language_fallback(user_input: str) -> Dict[str, Any]:
     if any(keyword in user_input for keyword in ['持续时长', '持续时间', '时长']):
         numbers = re.findall(r'\d+', user_input)
         if numbers:
-            result['action'] = '修改持续时长'
+            result['action'] = f'修改{condition_prefix}持续时长' if condition_prefix else '修改持续时长'
             result['value'] = int(numbers[0])
             return result
     
@@ -212,18 +322,18 @@ def _parse_natural_language_fallback(user_input: str) -> Dict[str, Any]:
     if '判据' in user_input or '逻辑' in user_input:
         if '大于' in user_input:
             if '等于' in user_input:
-                result['action'] = '修改判据'
+                result['action'] = f'修改{condition_prefix}判据' if condition_prefix else '修改判据'
                 result['value'] = '大于等于'
             else:
-                result['action'] = '修改判据'
+                result['action'] = f'修改{condition_prefix}判据' if condition_prefix else '修改判据'
                 result['value'] = '大于'
             return result
         elif '小于' in user_input:
             if '等于' in user_input:
-                result['action'] = '修改判据'
+                result['action'] = f'修改{condition_prefix}判据' if condition_prefix else '修改判据'
                 result['value'] = '小于等于'
             else:
-                result['action'] = '修改判据'
+                result['action'] = f'修改{condition_prefix}判据' if condition_prefix else '修改判据'
                 result['value'] = '小于'
             return result
     
@@ -291,19 +401,348 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                     # 尝试使用LLM解析自然语言输入（但捕获异常避免影响明确操作）
                     try:
                         from backend.api.routes.report_config import parse_config_intent_with_llm
-                        intent = await parse_config_intent_with_llm(request.user_input, params)
                         
-                        if intent.get("action") and intent.get("action").strip():
+                        # 构建当前上下文信息
+                        current_context = {}
+                        trigger_logic = params.get('triggerLogic', {})
+                        combination = trigger_logic.get('combination', 'AND')
+                        step = session.get('step', 1) if session else 1
+                        if combination == 'AND':
+                            if step == 1:
+                                current_context['current_condition'] = '条件一'
+                            elif step == 2:
+                                current_context['current_condition'] = '条件二'
+                        elif combination == 'Cond1_Only':
+                            current_context['current_condition'] = '条件一'
+                        elif combination == 'Cond2_Only':
+                            current_context['current_condition'] = '条件二'
+                        
+                        intent = await parse_config_intent_with_llm(request.user_input, params, current_context)
+                        
+                        # 支持单个操作和多个操作
+                        if "actions" in intent and isinstance(intent["actions"], list) and len(intent["actions"]) > 0:
+                            # 多个参数更新：循环处理每个操作
+                            parsed_by_llm = True
+                            logger.info(f"[LLM解析成功-多参数] utterance: {request.user_input}, actions数量: {len(intent['actions'])}")
+                            response = None
+                            success_count = 0
+                            failed_actions = []
+                            for i, action_item in enumerate(intent["actions"]):
+                                action = action_item.get("action")
+                                value = action_item.get("value")
+                                if action and action.strip():
+                                    logger.info(f"[处理多参数更新 {i+1}/{len(intent['actions'])}] action: {action}, value: {value}")
+                                    try:
+                                        response = report_config_manager.update_config(
+                                            request.session_id,
+                                            action,
+                                            value,
+                                            parsed_by_llm=parsed_by_llm
+                                        )
+                                        success_count += 1
+                                        if response.state != "parameter_config":
+                                            # 如果状态改变（如确认配置），停止处理后续操作
+                                            break
+                                    except Exception as e:
+                                        logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}")
+                                        failed_actions.append(f"{action}({value})")
+                            
+                            if response is None:
+                                return UpdateConfigResponse(
+                                    success=False,
+                                    message="未能处理多个参数更新",
+                                    config=params,
+                                    status=session.get("state", "unknown")
+                                )
+                            
+                            # 优化响应消息，显示成功和失败的操作
+                            message = response.message
+                            if success_count > 0:
+                                success_msg = f"已成功更新 {success_count} 个参数"
+                                if failed_actions:
+                                    success_msg += f"，以下参数更新失败：{', '.join(failed_actions)}"
+                                if message:
+                                    message = f"{success_msg}。\n\n{message}"
+                                else:
+                                    message = success_msg
+                            
+                            return UpdateConfigResponse(
+                                success=True,
+                                message=message,
+                                config=response.current_params,
+                                status=response.state,
+                                suggested_actions=response.suggested_actions
+                            )
+                        elif intent.get("action") and intent.get("action").strip():
+                            # 检查用户输入是否包含多个参数（通过逗号、顿号等分隔符判断）
+                            # 如果包含多个参数，但LLM只返回了单个action，使用更明确的提示重新调用LLM
+                            has_multiple_params = bool(re.search(r'[，,]\s*(?:和|以及|，|,)', request.user_input) or 
+                                                       (request.user_input.count('，') > 0) or 
+                                                       (request.user_input.count(',') > 0))
+                            
+                            if has_multiple_params:
+                                # LLM可能没有正确识别多个参数，使用更明确的提示重新调用LLM
+                                logger.warning(f"[LLM解析可能不完整] utterance: {request.user_input}包含多个参数，但LLM只返回了单个action，尝试使用更明确的提示重新解析")
+                                try:
+                                    # 重新调用LLM，强制要求识别多个参数
+                                    retry_intent = await parse_config_intent_with_llm(
+                                        request.user_input, 
+                                        params, 
+                                        current_context,
+                                        force_multiple_actions=True
+                                    )
+                                    
+                                    # 检查重新解析的结果
+                                    if "actions" in retry_intent and isinstance(retry_intent["actions"], list) and len(retry_intent["actions"]) > 0:
+                                        # LLM重新解析成功，识别到多个参数
+                                        logger.info(f"[LLM重新解析成功-多参数] utterance: {request.user_input}, actions数量: {len(retry_intent['actions'])}")
+                                        intent = retry_intent  # 使用重新解析的结果
+                                        # 继续到下面的多参数处理逻辑
+                                    elif retry_intent.get("action") and retry_intent.get("action").strip():
+                                        # LLM重新解析后仍然只返回单个action，但至少返回了结果
+                                        logger.warning(f"[LLM重新解析仍不完整] utterance: {request.user_input}，重新解析后仍然只返回单个action，继续使用单参数处理")
+                                        # 使用重新解析的结果作为fallback
+                                        intent = retry_intent
+                                    else:
+                                        # LLM重新解析失败或返回空结果，回退到规则匹配
+                                        logger.warning(f"[LLM重新解析失败] utterance: {request.user_input}，回退到规则匹配")
+                                        fallback_result = _parse_natural_language_fallback(request.user_input)
+                                        
+                                        # 检查fallback是否识别到多个参数
+                                        if "actions" in fallback_result and isinstance(fallback_result["actions"], list) and len(fallback_result["actions"]) > 0:
+                                            # 多个参数更新：循环处理每个操作
+                                            logger.info(f"[规则匹配成功-多参数] utterance: {request.user_input}, actions数量: {len(fallback_result['actions'])}")
+                                            response = None
+                                            success_count = 0
+                                            failed_actions = []
+                                            for i, action_item in enumerate(fallback_result["actions"]):
+                                                action = action_item.get("action")
+                                                value = action_item.get("value")
+                                                if action and action.strip():
+                                                    logger.info(f"[处理多参数更新 {i+1}/{len(fallback_result['actions'])}] action: {action}, value: {value}")
+                                                    try:
+                                                        response = report_config_manager.update_config(
+                                                            request.session_id,
+                                                            action,
+                                                            value,
+                                                            parsed_by_llm=False  # 使用规则匹配，不是LLM解析
+                                                        )
+                                                        success_count += 1
+                                                        if response.state != "parameter_config":
+                                                            # 如果状态改变（如确认配置），停止处理后续操作
+                                                            break
+                                                    except Exception as e:
+                                                        logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}")
+                                                        failed_actions.append(f"{action}({value})")
+                                            
+                                            if response is None:
+                                                return UpdateConfigResponse(
+                                                    success=False,
+                                                    message="未能处理多个参数更新",
+                                                    config=params,
+                                                    status=session.get("state", "unknown") if session else "unknown"
+                                                )
+                                            
+                                            # 优化响应消息，显示成功和失败的操作
+                                            message = response.message
+                                            if success_count > 0:
+                                                success_msg = f"已成功更新 {success_count} 个参数"
+                                                if failed_actions:
+                                                    success_msg += f"，以下参数更新失败：{', '.join(failed_actions)}"
+                                                if message:
+                                                    message = f"{success_msg}。\n\n{message}"
+                                                else:
+                                                    message = success_msg
+                                            
+                                            return UpdateConfigResponse(
+                                                success=True,
+                                                message=message,
+                                                config=response.current_params,
+                                                status=response.state,
+                                                suggested_actions=response.suggested_actions or []
+                                            )
+                                        # 如果fallback也只识别到单个参数，继续使用原始LLM返回的结果
+                                except Exception as e:
+                                    # LLM重新调用失败，回退到规则匹配
+                                    logger.warning(f"[LLM重新调用失败] utterance: {request.user_input}，错误: {e}，回退到规则匹配")
+                                    fallback_result = _parse_natural_language_fallback(request.user_input)
+                                    
+                                    # 检查fallback是否识别到多个参数
+                                    if "actions" in fallback_result and isinstance(fallback_result["actions"], list) and len(fallback_result["actions"]) > 0:
+                                        # 多个参数更新：循环处理每个操作
+                                        logger.info(f"[规则匹配成功-多参数] utterance: {request.user_input}, actions数量: {len(fallback_result['actions'])}")
+                                        response = None
+                                        success_count = 0
+                                        failed_actions = []
+                                        for i, action_item in enumerate(fallback_result["actions"]):
+                                            action = action_item.get("action")
+                                            value = action_item.get("value")
+                                            if action and action.strip():
+                                                logger.info(f"[处理多参数更新 {i+1}/{len(fallback_result['actions'])}] action: {action}, value: {value}")
+                                                try:
+                                                    response = report_config_manager.update_config(
+                                                        request.session_id,
+                                                        action,
+                                                        value,
+                                                        parsed_by_llm=False  # 使用规则匹配，不是LLM解析
+                                                    )
+                                                    success_count += 1
+                                                    if response.state != "parameter_config":
+                                                        # 如果状态改变（如确认配置），停止处理后续操作
+                                                        break
+                                                except Exception as e:
+                                                    logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}")
+                                                    failed_actions.append(f"{action}({value})")
+                                        
+                                        if response is None:
+                                            return UpdateConfigResponse(
+                                                success=False,
+                                                message="未能处理多个参数更新",
+                                                config=params,
+                                                status=session.get("state", "unknown") if session else "unknown"
+                                            )
+                                        
+                                        # 优化响应消息，显示成功和失败的操作
+                                        message = response.message
+                                        if success_count > 0:
+                                            success_msg = f"已成功更新 {success_count} 个参数"
+                                            if failed_actions:
+                                                success_msg += f"，以下参数更新失败：{', '.join(failed_actions)}"
+                                            if message:
+                                                message = f"{success_msg}。\n\n{message}"
+                                            else:
+                                                message = success_msg
+                                        
+                                        return UpdateConfigResponse(
+                                            success=True,
+                                            message=message,
+                                            config=response.current_params,
+                                            status=response.state,
+                                            suggested_actions=response.suggested_actions or []
+                                        )
+                                    # 如果fallback也只识别到单个参数，继续使用原始LLM返回的结果
+                            
+                            # 处理单个action的情况（可能是单参数，或者是多参数但LLM只识别到一个）
+                            # 检查当前intent是否有actions数组（可能是重新解析后的结果）
+                            if "actions" in intent and isinstance(intent["actions"], list) and len(intent["actions"]) > 0:
+                                # 多个参数更新：循环处理每个操作
+                                parsed_by_llm = True
+                                logger.info(f"[LLM解析成功-多参数] utterance: {request.user_input}, actions数量: {len(intent['actions'])}")
+                                response = None
+                                success_count = 0
+                                failed_actions = []
+                                for i, action_item in enumerate(intent["actions"]):
+                                    action = action_item.get("action")
+                                    value = action_item.get("value")
+                                    if action and action.strip():
+                                        logger.info(f"[处理多参数更新 {i+1}/{len(intent['actions'])}] action: {action}, value: {value}")
+                                        try:
+                                            response = report_config_manager.update_config(
+                                                request.session_id,
+                                                action,
+                                                value,
+                                                parsed_by_llm=parsed_by_llm
+                                            )
+                                            success_count += 1
+                                            if response.state != "parameter_config":
+                                                # 如果状态改变（如确认配置），停止处理后续操作
+                                                break
+                                        except Exception as e:
+                                            logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}")
+                                            failed_actions.append(f"{action}({value})")
+                                
+                                if response is None:
+                                    return UpdateConfigResponse(
+                                        success=False,
+                                        message="未能处理多个参数更新",
+                                        config=params,
+                                        status=session.get("state", "unknown") if session else "unknown"
+                                    )
+                                
+                                # 优化响应消息，显示成功和失败的操作
+                                message = response.message
+                                if success_count > 0:
+                                    success_msg = f"已成功更新 {success_count} 个参数"
+                                    if failed_actions:
+                                        success_msg += f"，以下参数更新失败：{', '.join(failed_actions)}"
+                                    if message:
+                                        message = f"{success_msg}。\n\n{message}"
+                                    else:
+                                        message = success_msg
+                                
+                                return UpdateConfigResponse(
+                                    success=True,
+                                    message=message,
+                                    config=response.current_params,
+                                    status=response.state,
+                                    suggested_actions=response.suggested_actions or []
+                                )
+                            
+                            # 使用LLM返回的单个action
                             action = intent["action"]
                             parsed_by_llm = True
-                            logger.info(f"[LLM解析成功] utterance: {request.user_input}, action: {action}, value: {intent.get('value')}")
+                            logger.info(f"[LLM解析成功-单参数] utterance: {request.user_input}, action: {action}, value: {intent.get('value')}")
                             if "value" in intent:
                                 value = intent["value"]
                         else:
                             # LLM返回空结果，尝试规则匹配fallback
                             logger.info(f"[LLM解析返回空] utterance: {request.user_input}, 使用fallback规则解析")
                             fallback_result = _parse_natural_language_fallback(request.user_input)
-                            if fallback_result.get("action"):
+                            
+                            # 检查是否是多个参数
+                            if "actions" in fallback_result and isinstance(fallback_result["actions"], list) and len(fallback_result["actions"]) > 0:
+                                # 多个参数更新：循环处理每个操作
+                                logger.info(f"[规则匹配成功-多参数] utterance: {request.user_input}, actions数量: {len(fallback_result['actions'])}")
+                                response = None
+                                success_count = 0
+                                failed_actions = []
+                                for i, action_item in enumerate(fallback_result["actions"]):
+                                    action = action_item.get("action")
+                                    value = action_item.get("value")
+                                    if action and action.strip():
+                                        logger.info(f"[处理多参数更新 {i+1}/{len(fallback_result['actions'])}] action: {action}, value: {value}")
+                                        try:
+                                            response = report_config_manager.update_config(
+                                                request.session_id,
+                                                action,
+                                                value,
+                                                parsed_by_llm=parsed_by_llm
+                                            )
+                                            success_count += 1
+                                            if response.state != "parameter_config":
+                                                # 如果状态改变（如确认配置），停止处理后续操作
+                                                break
+                                        except Exception as e:
+                                            logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}")
+                                            failed_actions.append(f"{action}({value})")
+                                
+                                if response is None:
+                                    return UpdateConfigResponse(
+                                        success=False,
+                                        message="未能处理多个参数更新",
+                                        config=params,
+                                        status=session.get("state", "unknown") if session else "unknown"
+                                    )
+                                
+                                # 优化响应消息，显示成功和失败的操作
+                                message = response.message
+                                if success_count > 0:
+                                    success_msg = f"已成功更新 {success_count} 个参数"
+                                    if failed_actions:
+                                        success_msg += f"，以下参数更新失败：{', '.join(failed_actions)}"
+                                    if message:
+                                        message = f"{success_msg}。\n\n{message}"
+                                    else:
+                                        message = success_msg
+                                
+                                return UpdateConfigResponse(
+                                    success=True,
+                                    message=message,
+                                    config=response.current_params,
+                                    status=response.state,
+                                    suggested_actions=response.suggested_actions or []
+                                )
+                            elif fallback_result.get("action"):
                                 action = fallback_result["action"]
                                 if "value" in fallback_result:
                                     value = fallback_result["value"]
@@ -314,7 +753,61 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                         # LLM解析失败（如502错误），使用规则匹配作为fallback
                         logger.warning(f"[LLM解析异常] utterance: {request.user_input}, 错误: {llm_error}, 使用规则匹配fallback")
                         fallback_result = _parse_natural_language_fallback(request.user_input)
-                        if fallback_result.get("action"):
+                        
+                        # 检查是否是多个参数
+                        if "actions" in fallback_result and isinstance(fallback_result["actions"], list) and len(fallback_result["actions"]) > 0:
+                            # 多个参数更新：循环处理每个操作
+                            logger.info(f"[规则匹配成功-多参数] utterance: {request.user_input}, actions数量: {len(fallback_result['actions'])}")
+                            response = None
+                            success_count = 0
+                            failed_actions = []
+                            for i, action_item in enumerate(fallback_result["actions"]):
+                                action = action_item.get("action")
+                                value = action_item.get("value")
+                                if action and action.strip():
+                                    logger.info(f"[处理多参数更新 {i+1}/{len(fallback_result['actions'])}] action: {action}, value: {value}")
+                                    try:
+                                        response = report_config_manager.update_config(
+                                            request.session_id,
+                                            action,
+                                            value,
+                                            parsed_by_llm=parsed_by_llm
+                                        )
+                                        success_count += 1
+                                        if response.state != "parameter_config":
+                                            # 如果状态改变（如确认配置），停止处理后续操作
+                                            break
+                                    except Exception as e:
+                                        logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}")
+                                        failed_actions.append(f"{action}({value})")
+                            
+                            if response is None:
+                                return UpdateConfigResponse(
+                                    success=False,
+                                    message="未能处理多个参数更新",
+                                    config=params,
+                                    status=session.get("state", "unknown") if session else "unknown"
+                                )
+                            
+                            # 优化响应消息，显示成功和失败的操作
+                            message = response.message
+                            if success_count > 0:
+                                success_msg = f"已成功更新 {success_count} 个参数"
+                                if failed_actions:
+                                    success_msg += f"，以下参数更新失败：{', '.join(failed_actions)}"
+                                if message:
+                                    message = f"{success_msg}。\n\n{message}"
+                                else:
+                                    message = success_msg
+                            
+                            return UpdateConfigResponse(
+                                success=True,
+                                message=message,
+                                config=response.current_params,
+                                status=response.state,
+                                suggested_actions=response.suggested_actions or []
+                            )
+                        elif fallback_result.get("action"):
                             action = fallback_result["action"]
                             if "value" in fallback_result:
                                 value = fallback_result["value"]
@@ -322,7 +815,15 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                         else:
                             logger.warning(f"[规则匹配失败] utterance: {request.user_input}, 无法解析")
                 
-                # 调用update_config，传入解析后的action和value
+                # 调用update_config，传入解析后的action和value（单个参数的情况）
+                if action is None:
+                    return UpdateConfigResponse(
+                        success=False,
+                        message="未能识别您的操作。请使用自然语言修改参数,例如:'把阈值改为2000'、'修改统计方法为最大值'。",
+                        config=params,
+                        status=session.get("state", "unknown") if session else "unknown"
+                    )
+                
                 config_response = report_config_manager.update_config(
                     request.session_id,
                     action,
@@ -531,16 +1032,18 @@ async def complete_config_dialogue(request: CompleteConfigRequest):
                 # 3. 创建输出目录
                 import uuid
                 report_id = str(uuid.uuid4())
-                reports_dir = backend_dir / "reports" / report_id
+                reports_dir = backend_dir / "reports"
                 reports_dir.mkdir(parents=True, exist_ok=True)
                 
                 # 4. 调用计算模块生成报表
+                # 新格式：reports/steady_state_report-{uuid}.xlsx
+                report_file_path = reports_dir / f"steady_state_report-{report_id}.xlsx"
                 from backend.services.steady_state_service import SteadyStateService
                 service = SteadyStateService()
                 report_path = service.generate_report(
                     str(config_file_path),
                     str(input_file_path),
-                    str(reports_dir)
+                    str(report_file_path)
                 )
                 
                 # 5. 删除配置会话，退出配置模式

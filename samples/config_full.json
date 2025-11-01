@@ -4,7 +4,7 @@
   "uploadTime": "2024-01-01T00:00:00.000000",
   "channels": [
     {
-      "channel_name": "Ng(rpm)",
+      "channel_name": "Ng",
       "statistics": {
         "count": 6001,
         "mean": 1458.090,
@@ -19,7 +19,7 @@
       }
     },
     {
-      "channel_name": "Np(rpm)",
+      "channel_name": "Np",
       "statistics": {
         "count": 6001,
         "mean": 1458.090,
@@ -72,8 +72,8 @@
     ],
     "stableState": {
       "displayChannels": [
-        "Ng(rpm)",
-        "Np(rpm)",
+        "Ng",
+        "Np",
         "Temperature(°C)",
         "Pressure(kPa)"
       ],
@@ -81,7 +81,7 @@
       "conditions": [
         {
           "type": "statistic",
-          "channel": "Ng(rpm)",
+          "channel": "Ng",
           "statistic": "平均值",
           "duration": 1,
           "logic": ">",
@@ -89,7 +89,7 @@
         },
         {
           "type": "amplitude_change",
-          "channel": "Ng(rpm)",
+          "channel": "Ng",
           "duration": 10,
           "logic": "<",
           "threshold": 100
@@ -119,14 +119,14 @@
         "threshold": 50
       },
       "rundown_ng": {
-        "channel": "Ng(rpm)",
+        "channel": "Ng",
         "statistic": "平均值",
         "duration": 1,
         "threshold1": 8000,
         "threshold2": 1000
       },
       "rundown_np": {
-        "channel": "Np(rpm)",
+        "channel": "Np",
         "statistic": "平均值",
         "duration": 1,
         "threshold1": 6000,
@@ -187,7 +187,7 @@
           "conditionLogic": "AND",
           "conditions": [
             {
-              "channel": "Ng(rpm)",
+              "channel": "Ng",
               "statistic": "瞬时值",
               "logic": "<",
               "threshold": 18000

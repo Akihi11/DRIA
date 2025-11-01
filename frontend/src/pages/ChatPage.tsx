@@ -176,29 +176,29 @@ const ChatPage: React.FC = () => {
 
   // 取消配置
   const handleCancelConfig = async () => {
-    if (!configMode.sessionId) return
-
     setIsLoading(true)
     
     try {
-      // 调用专门的取消配置API
-      const response = await fetch('/api/config-dialogue/cancel-config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          session_id: configMode.sessionId
+      // 如果有sessionId，调用API取消配置
+      if (configMode.sessionId) {
+        const response = await fetch('/api/config-dialogue/cancel-config', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            session_id: configMode.sessionId
+          })
         })
-      })
-      
-      const data = await response.json()
-      
-      if (!response.ok) {
-        throw new Error(data.detail || '取消配置失败')
+        
+        const data = await response.json()
+        
+        if (!response.ok) {
+          throw new Error(data.detail || '取消配置失败')
+        }
       }
       
-      // 退出配置模式
+      // 退出配置模式（无论是否有sessionId都要退出）
       setConfigMode({
         isActive: false,
         sessionId: '',
@@ -231,8 +231,8 @@ const ChatPage: React.FC = () => {
         currentParams: {}
       })
       
-      // 显示错误消息
-      const errorMessage: Message = {
+      // 显示取消消息
+      const cancelMessage: Message = {
         id: uuidv4(),
         type: 'ai',
         content: '配置已取消，回到对话模式。您可以继续与我聊天，或者重新开始配置报表。',
@@ -242,7 +242,7 @@ const ChatPage: React.FC = () => {
         }
       }
       
-      setMessages(prev => [...prev, errorMessage])
+      setMessages(prev => [...prev, cancelMessage])
     } finally {
       setIsLoading(false)
     }
@@ -375,15 +375,13 @@ const ChatPage: React.FC = () => {
     }
   }
 
-  // 应用“稳态参数”通道选择
+  // 应用"稳态参数"通道选择
   const applySteadyStateChannelSelection = async () => {
     if (!configMode.sessionId) return
 
-    // 校验：必须至少选择一个转速通道（Ng 或 Np）
-    const hasNg = selectedChannels.some(c => containsNg(c))
-    const hasNp = selectedChannels.some(c => containsNp(c))
-    if (!hasNg && !hasNp) {
-      message.warning('请至少选择一个转速通道（Ng 或 Np）')
+    // 不再强制要求转速通道，至少选择一个通道即可
+    if (selectedChannels.length === 0) {
+      message.warning('请至少选择一个通道')
       return
     }
 
@@ -501,12 +499,13 @@ const ChatPage: React.FC = () => {
         currentParams: configResponse.config || {}
       })
 
-      // 若选择的是“稳态分析”，弹出通道多选弹窗，不显示AI消息
+      // 若选择的是"稳态分析"，弹出通道多选弹窗，不显示AI消息
       if (reportType === '稳态分析') {
         const base = lastFileChannels && lastFileChannels.length > 0
           ? lastFileChannels
           : ['Ng(rpm)', 'Np(rpm)', 'Temperature(°C)', 'Pressure(kPa)']
-        setSelectedChannels([])
+        // 默认全选所有通道
+        setSelectedChannels([...base])
         setChannelModalVisible(true)
         // 确保候选存在
         setLastFileChannels(base)
@@ -664,7 +663,7 @@ const ChatPage: React.FC = () => {
 
       {/* 稳态参数 - 通道多选弹窗 */}
       <Modal
-        title="请选择用于稳态参数的通道（至少包含一个转速通道）"
+        title="请选择用于稳态参数的通道"
         open={channelModalVisible}
         onCancel={() => setChannelModalVisible(false)}
         footer={[
@@ -672,6 +671,22 @@ const ChatPage: React.FC = () => {
           <Button key="ok" type="primary" onClick={applySteadyStateChannelSelection}>确定</Button>
         ]}
       >
+        <div style={{ marginBottom: 16 }}>
+          <Button 
+            type="link" 
+            onClick={() => {
+              // 全选：如果当前已全选，则取消全选；否则全选
+              const allSelected = selectedChannels.length === lastFileChannels.length
+              if (allSelected) {
+                setSelectedChannels([])
+              } else {
+                setSelectedChannels([...lastFileChannels])
+              }
+            }}
+          >
+            {selectedChannels.length === lastFileChannels.length ? '取消全选' : '全选'}
+          </Button>
+        </div>
         <Checkbox.Group
           style={{ width: '100%' }}
           value={selectedChannels}
