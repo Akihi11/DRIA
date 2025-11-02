@@ -26,6 +26,107 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+def _build_summary_message(all_responses: list, final_response, failed_actions: list) -> str:
+    """
+    汇总多个响应的消息
+    
+    Args:
+        all_responses: 所有成功的响应消息列表
+        final_response: 最后一个响应对象（用于获取状态信息）
+        failed_actions: 失败的操作列表
+    
+    Returns:
+        汇总后的消息
+    """
+    # 汇总所有成功的修改信息
+    success_details = []
+    for msg in all_responses:
+        if msg:
+            # 移除可能的step前缀（如"[step1]"或"[step2]"）
+            msg_clean = msg.split(']', 1)[-1].strip() if ']' in msg else msg.strip()
+            # 使用正则表达式提取"已更改XXX为YYY"的消息
+            pattern = r'已更改[^。\n]*?为[^。\n]*?(?=[。\n]|$)'
+            matches = re.findall(pattern, msg_clean)
+            if matches:
+                detail = matches[0].strip().rstrip('。\n ').strip()
+                detail = re.sub(r'为\s+', '为', detail)  # 规范化空格
+                if detail and '已更改' in detail and '为' in detail:
+                    if detail not in success_details:
+                        success_details.append(detail)
+            else:
+                # 如果正则没找到，尝试按句号分割查找
+                sentences = msg_clean.split('。')
+                for sentence in sentences:
+                    sentence_clean = sentence.strip()
+                    if '已更改' in sentence_clean and '为' in sentence_clean:
+                        sentence_no_space = sentence_clean.lstrip()
+                        if sentence_no_space.startswith('已更改'):
+                            detail = sentence_clean.split('\n')[0].strip()
+                            if detail.endswith('。'):
+                                detail = detail[:-1]
+                            detail = re.sub(r'为\s+', '为', detail)
+                            if detail and '已更改' in detail and '为' in detail:
+                                if detail not in success_details:
+                                    success_details.append(detail)
+                                    break
+    
+    logger.info(f"[汇总消息-辅助函数] success_details: {success_details}")
+    
+    # 构建汇总消息
+    success_msg = ""
+    if success_details:
+        changes = []
+        for detail in success_details:
+            if '已更改' in detail and '为' in detail:
+                change_part = detail.replace('已更改', '').strip()
+                if change_part:
+                    changes.append(change_part)
+        if changes:
+            success_msg = "已更改" + "，".join(changes) + "。"
+            logger.info(f"[汇总消息-辅助函数] success_msg: {success_msg}")
+    
+    # 从最后一个响应中提取状态信息（_msg_for_condition生成的部分）
+    status_text = ""
+    if final_response and final_response.message:
+        original_msg = final_response.message
+        # 查找"【"开头的状态信息部分
+        if "【" in original_msg:
+            start_idx = original_msg.find("【")
+            if start_idx >= 0:
+                status_text = original_msg[start_idx:].strip()
+        # 如果没找到"【"，尝试按行查找
+        if not status_text:
+            lines = original_msg.split('\n')
+            status_lines = []
+            in_status = False
+            for line in lines:
+                if '条件一' in line or '条件二' in line:
+                    in_status = True
+                if in_status and '已更改' not in line:
+                    status_lines.append(line)
+            if status_lines:
+                status_text = '\n'.join(status_lines).strip()
+    
+    # 构建最终消息
+    if success_msg:
+        if status_text:
+            message = f"{success_msg}\n\n{status_text}"
+        else:
+            message = success_msg
+    else:
+        # 如果没有成功汇总，使用原始消息
+        message = final_response.message if final_response and final_response.message else ""
+    
+    # 添加失败信息
+    if failed_actions:
+        failed_msg = f"以下参数更新失败：{', '.join(failed_actions)}"
+        if message:
+            message = f"{failed_msg}\n\n{message}"
+        else:
+            message = failed_msg
+    
+    return message
+
 # 请求/响应模型
 class StartConfigRequest(BaseModel):
     """开始配置请求"""
@@ -126,7 +227,6 @@ def _is_explicit_button_action(user_input: str) -> bool:
     - "使用 xxx" (通道选择阶段)
     - "完成通道选择" / "完成选择"
     - "仅用条件一" / "仅用条件二" / "AND" (组合逻辑选择)
-    - "返回修改通道"
     - "确认配置" / "确认" / "完成" / "好了"
     - "确认生成" / "修改配置" / "取消配置"
     
@@ -144,7 +244,6 @@ def _is_explicit_button_action(user_input: str) -> bool:
         r'^仅用条件一$',
         r'^仅用条件二$',
         r'^AND$',
-        r'^返回修改通道$',
         r'^确认配置$',
         r'^确认$',
         r'^完成$',
@@ -169,7 +268,7 @@ def _parse_natural_language_fallback(user_input: str) -> Dict[str, Any]:
     - "把条件一的阈值改为100" -> action="修改条件一阈值", value=100
     - "统计方法改为最大值" / "修改统计方法为最大值" -> action="修改统计方法", value="最大值"
     - "持续时长改为5秒" / "设置持续时长为5" -> action="修改持续时长", value=5
-    - "判据改为大于" / "修改判据为大于" -> action="修改判据", value="大于"
+    - "判据改为大于" / "修改判据为大于" / "判断依据改为大于" / "修改判断依据为大于" -> action="修改判断依据", value="大于"
     
     支持多个参数：
     - "统计方法改为最大值，阈值改为1667" -> {"actions": [{"action": "修改统计方法", "value": "最大值"}, {"action": "修改阈值", "value": 1667}]}
@@ -242,29 +341,29 @@ def _parse_natural_language_fallback(user_input: str) -> Dict[str, Any]:
                     })
                     continue
             
-            # 解析判据逻辑修改
-            if '判据' in part or '逻辑' in part:
+            # 解析判断依据逻辑修改（支持"判据"、"判断依据"、"逻辑"三种说法）
+            if '判据' in part or '判断依据' in part or '逻辑' in part:
                 if '大于' in part:
                     if '等于' in part:
                         actions.append({
-                            'action': f'修改{condition_prefix}判据' if condition_prefix else '修改判据',
+                            'action': f'修改{condition_prefix}判断依据' if condition_prefix else '修改判断依据',
                             'value': '大于等于'
                         })
                     else:
                         actions.append({
-                            'action': f'修改{condition_prefix}判据' if condition_prefix else '修改判据',
+                            'action': f'修改{condition_prefix}判断依据' if condition_prefix else '修改判断依据',
                             'value': '大于'
                         })
                     continue
                 elif '小于' in part:
                     if '等于' in part:
                         actions.append({
-                            'action': f'修改{condition_prefix}判据' if condition_prefix else '修改判据',
+                            'action': f'修改{condition_prefix}判断依据' if condition_prefix else '修改判断依据',
                             'value': '小于等于'
                         })
                     else:
                         actions.append({
-                            'action': f'修改{condition_prefix}判据' if condition_prefix else '修改判据',
+                            'action': f'修改{condition_prefix}判断依据' if condition_prefix else '修改判断依据',
                             'value': '小于'
                         })
                     continue
@@ -318,22 +417,22 @@ def _parse_natural_language_fallback(user_input: str) -> Dict[str, Any]:
             result['value'] = int(numbers[0])
             return result
     
-    # 解析判据逻辑修改
-    if '判据' in user_input or '逻辑' in user_input:
+    # 解析判断依据逻辑修改（支持"判据"、"判断依据"、"逻辑"三种说法）
+    if '判据' in user_input or '判断依据' in user_input or '逻辑' in user_input:
         if '大于' in user_input:
             if '等于' in user_input:
-                result['action'] = f'修改{condition_prefix}判据' if condition_prefix else '修改判据'
+                result['action'] = f'修改{condition_prefix}判断依据' if condition_prefix else '修改判断依据'
                 result['value'] = '大于等于'
             else:
-                result['action'] = f'修改{condition_prefix}判据' if condition_prefix else '修改判据'
+                result['action'] = f'修改{condition_prefix}判断依据' if condition_prefix else '修改判断依据'
                 result['value'] = '大于'
             return result
         elif '小于' in user_input:
             if '等于' in user_input:
-                result['action'] = f'修改{condition_prefix}判据' if condition_prefix else '修改判据'
+                result['action'] = f'修改{condition_prefix}判断依据' if condition_prefix else '修改判断依据'
                 result['value'] = '小于等于'
             else:
-                result['action'] = f'修改{condition_prefix}判据' if condition_prefix else '修改判据'
+                result['action'] = f'修改{condition_prefix}判断依据' if condition_prefix else '修改判断依据'
                 result['value'] = '小于'
             return result
     
@@ -403,19 +502,24 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                         from backend.api.routes.report_config import parse_config_intent_with_llm
                         
                         # 构建当前上下文信息
+                        # 优先级：1. last_modified_condition（上一次修改的条件） 2. 默认条件（根据combination判断）
                         current_context = {}
                         trigger_logic = params.get('triggerLogic', {})
                         combination = trigger_logic.get('combination', 'AND')
-                        step = session.get('step', 1) if session else 1
-                        if combination == 'AND':
-                            if step == 1:
+                        
+                        # 优先使用last_modified_condition（如果存在）
+                        last_modified_condition = session.get('last_modified_condition') if session else None
+                        if last_modified_condition:
+                            current_context['current_condition'] = last_modified_condition
+                        else:
+                            # 如果没有last_modified_condition，根据combination判断默认条件
+                            if combination == 'AND':
+                                # AND模式下，默认条件一
                                 current_context['current_condition'] = '条件一'
-                            elif step == 2:
+                            elif combination == 'Cond1_Only':
+                                current_context['current_condition'] = '条件一'
+                            elif combination == 'Cond2_Only':
                                 current_context['current_condition'] = '条件二'
-                        elif combination == 'Cond1_Only':
-                            current_context['current_condition'] = '条件一'
-                        elif combination == 'Cond2_Only':
-                            current_context['current_condition'] = '条件二'
                         
                         intent = await parse_config_intent_with_llm(request.user_input, params, current_context)
                         
@@ -427,19 +531,24 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                             response = None
                             success_count = 0
                             failed_actions = []
+                            all_responses = []  # 收集所有成功的响应消息
                             for i, action_item in enumerate(intent["actions"]):
                                 action = action_item.get("action")
                                 value = action_item.get("value")
                                 if action and action.strip():
                                     logger.info(f"[处理多参数更新 {i+1}/{len(intent['actions'])}] action: {action}, value: {value}")
                                     try:
-                                        response = report_config_manager.update_config(
+                                        single_response = report_config_manager.update_config(
                                             request.session_id,
                                             action,
                                             value,
                                             parsed_by_llm=parsed_by_llm
                                         )
+                                        response = single_response  # 保留最后一个响应用于状态和参数
                                         success_count += 1
+                                        # 收集所有成功的响应消息，用于后续汇总
+                                        if single_response.message:
+                                            all_responses.append(single_response.message)
                                         if response.state != "parameter_config":
                                             # 如果状态改变（如确认配置），停止处理后续操作
                                             break
@@ -455,16 +564,8 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                     status=session.get("state", "unknown")
                                 )
                             
-                            # 优化响应消息，显示成功和失败的操作
-                            message = response.message
-                            if success_count > 0:
-                                success_msg = f"已成功更新 {success_count} 个参数"
-                                if failed_actions:
-                                    success_msg += f"，以下参数更新失败：{', '.join(failed_actions)}"
-                                if message:
-                                    message = f"{success_msg}。\n\n{message}"
-                                else:
-                                    message = success_msg
+                            # 使用辅助函数汇总消息
+                            message = _build_summary_message(all_responses, response, failed_actions)
                             
                             return UpdateConfigResponse(
                                 success=True,
@@ -515,19 +616,24 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                             response = None
                                             success_count = 0
                                             failed_actions = []
+                                            all_responses = []  # 收集所有成功的响应消息
                                             for i, action_item in enumerate(fallback_result["actions"]):
                                                 action = action_item.get("action")
                                                 value = action_item.get("value")
                                                 if action and action.strip():
                                                     logger.info(f"[处理多参数更新 {i+1}/{len(fallback_result['actions'])}] action: {action}, value: {value}")
                                                     try:
-                                                        response = report_config_manager.update_config(
+                                                        single_response = report_config_manager.update_config(
                                                             request.session_id,
                                                             action,
                                                             value,
                                                             parsed_by_llm=False  # 使用规则匹配，不是LLM解析
                                                         )
+                                                        response = single_response  # 保留最后一个响应用于状态和参数
                                                         success_count += 1
+                                                        # 收集所有成功的响应消息，用于后续汇总
+                                                        if single_response.message:
+                                                            all_responses.append(single_response.message)
                                                         if response.state != "parameter_config":
                                                             # 如果状态改变（如确认配置），停止处理后续操作
                                                             break
@@ -543,16 +649,8 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                                     status=session.get("state", "unknown") if session else "unknown"
                                                 )
                                             
-                                            # 优化响应消息，显示成功和失败的操作
-                                            message = response.message
-                                            if success_count > 0:
-                                                success_msg = f"已成功更新 {success_count} 个参数"
-                                                if failed_actions:
-                                                    success_msg += f"，以下参数更新失败：{', '.join(failed_actions)}"
-                                                if message:
-                                                    message = f"{success_msg}。\n\n{message}"
-                                                else:
-                                                    message = success_msg
+                                            # 使用辅助函数汇总消息
+                                            message = _build_summary_message(all_responses, response, failed_actions)
                                             
                                             return UpdateConfigResponse(
                                                 success=True,
@@ -574,19 +672,24 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                         response = None
                                         success_count = 0
                                         failed_actions = []
+                                        all_responses = []  # 收集所有成功的响应消息
                                         for i, action_item in enumerate(fallback_result["actions"]):
                                             action = action_item.get("action")
                                             value = action_item.get("value")
                                             if action and action.strip():
                                                 logger.info(f"[处理多参数更新 {i+1}/{len(fallback_result['actions'])}] action: {action}, value: {value}")
                                                 try:
-                                                    response = report_config_manager.update_config(
+                                                    single_response = report_config_manager.update_config(
                                                         request.session_id,
                                                         action,
                                                         value,
                                                         parsed_by_llm=False  # 使用规则匹配，不是LLM解析
                                                     )
+                                                    response = single_response  # 保留最后一个响应用于状态和参数
                                                     success_count += 1
+                                                    # 收集所有成功的响应消息，用于后续汇总
+                                                    if single_response.message:
+                                                        all_responses.append(single_response.message)
                                                     if response.state != "parameter_config":
                                                         # 如果状态改变（如确认配置），停止处理后续操作
                                                         break
@@ -602,16 +705,8 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                                 status=session.get("state", "unknown") if session else "unknown"
                                             )
                                         
-                                        # 优化响应消息，显示成功和失败的操作
-                                        message = response.message
-                                        if success_count > 0:
-                                            success_msg = f"已成功更新 {success_count} 个参数"
-                                            if failed_actions:
-                                                success_msg += f"，以下参数更新失败：{', '.join(failed_actions)}"
-                                            if message:
-                                                message = f"{success_msg}。\n\n{message}"
-                                            else:
-                                                message = success_msg
+                                        # 使用辅助函数汇总消息
+                                        message = _build_summary_message(all_responses, response, failed_actions)
                                         
                                         return UpdateConfigResponse(
                                             success=True,
@@ -631,19 +726,24 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                 response = None
                                 success_count = 0
                                 failed_actions = []
+                                all_responses = []  # 收集所有成功的响应消息
                                 for i, action_item in enumerate(intent["actions"]):
                                     action = action_item.get("action")
                                     value = action_item.get("value")
                                     if action and action.strip():
                                         logger.info(f"[处理多参数更新 {i+1}/{len(intent['actions'])}] action: {action}, value: {value}")
                                         try:
-                                            response = report_config_manager.update_config(
+                                            single_response = report_config_manager.update_config(
                                                 request.session_id,
                                                 action,
                                                 value,
                                                 parsed_by_llm=parsed_by_llm
                                             )
+                                            response = single_response  # 保留最后一个响应用于状态和参数
                                             success_count += 1
+                                            # 收集所有成功的响应消息，用于后续汇总
+                                            if single_response.message:
+                                                all_responses.append(single_response.message)
                                             if response.state != "parameter_config":
                                                 # 如果状态改变（如确认配置），停止处理后续操作
                                                 break
@@ -659,16 +759,8 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                         status=session.get("state", "unknown") if session else "unknown"
                                     )
                                 
-                                # 优化响应消息，显示成功和失败的操作
-                                message = response.message
-                                if success_count > 0:
-                                    success_msg = f"已成功更新 {success_count} 个参数"
-                                    if failed_actions:
-                                        success_msg += f"，以下参数更新失败：{', '.join(failed_actions)}"
-                                    if message:
-                                        message = f"{success_msg}。\n\n{message}"
-                                    else:
-                                        message = success_msg
+                                # 使用辅助函数汇总消息
+                                message = _build_summary_message(all_responses, response, failed_actions)
                                 
                                 return UpdateConfigResponse(
                                     success=True,
@@ -696,19 +788,24 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                 response = None
                                 success_count = 0
                                 failed_actions = []
+                                all_responses = []  # 收集所有成功的响应消息
                                 for i, action_item in enumerate(fallback_result["actions"]):
                                     action = action_item.get("action")
                                     value = action_item.get("value")
                                     if action and action.strip():
                                         logger.info(f"[处理多参数更新 {i+1}/{len(fallback_result['actions'])}] action: {action}, value: {value}")
                                         try:
-                                            response = report_config_manager.update_config(
+                                            single_response = report_config_manager.update_config(
                                                 request.session_id,
                                                 action,
                                                 value,
                                                 parsed_by_llm=parsed_by_llm
                                             )
+                                            response = single_response  # 保留最后一个响应用于状态和参数
                                             success_count += 1
+                                            # 收集所有成功的响应消息，用于后续汇总
+                                            if single_response.message:
+                                                all_responses.append(single_response.message)
                                             if response.state != "parameter_config":
                                                 # 如果状态改变（如确认配置），停止处理后续操作
                                                 break
@@ -724,16 +821,8 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                         status=session.get("state", "unknown") if session else "unknown"
                                     )
                                 
-                                # 优化响应消息，显示成功和失败的操作
-                                message = response.message
-                                if success_count > 0:
-                                    success_msg = f"已成功更新 {success_count} 个参数"
-                                    if failed_actions:
-                                        success_msg += f"，以下参数更新失败：{', '.join(failed_actions)}"
-                                    if message:
-                                        message = f"{success_msg}。\n\n{message}"
-                                    else:
-                                        message = success_msg
+                                # 使用辅助函数汇总消息
+                                message = _build_summary_message(all_responses, response, failed_actions)
                                 
                                 return UpdateConfigResponse(
                                     success=True,
@@ -761,19 +850,24 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                             response = None
                             success_count = 0
                             failed_actions = []
+                            all_responses = []  # 收集所有成功的响应消息
                             for i, action_item in enumerate(fallback_result["actions"]):
                                 action = action_item.get("action")
                                 value = action_item.get("value")
                                 if action and action.strip():
                                     logger.info(f"[处理多参数更新 {i+1}/{len(fallback_result['actions'])}] action: {action}, value: {value}")
                                     try:
-                                        response = report_config_manager.update_config(
+                                        single_response = report_config_manager.update_config(
                                             request.session_id,
                                             action,
                                             value,
                                             parsed_by_llm=parsed_by_llm
                                         )
+                                        response = single_response  # 保留最后一个响应用于状态和参数
                                         success_count += 1
+                                        # 收集所有成功的响应消息，用于后续汇总
+                                        if single_response.message:
+                                            all_responses.append(single_response.message)
                                         if response.state != "parameter_config":
                                             # 如果状态改变（如确认配置），停止处理后续操作
                                             break
@@ -789,16 +883,8 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                     status=session.get("state", "unknown") if session else "unknown"
                                 )
                             
-                            # 优化响应消息，显示成功和失败的操作
-                            message = response.message
-                            if success_count > 0:
-                                success_msg = f"已成功更新 {success_count} 个参数"
-                                if failed_actions:
-                                    success_msg += f"，以下参数更新失败：{', '.join(failed_actions)}"
-                                if message:
-                                    message = f"{success_msg}。\n\n{message}"
-                                else:
-                                    message = success_msg
+                            # 使用辅助函数汇总消息
+                            message = _build_summary_message(all_responses, response, failed_actions)
                             
                             return UpdateConfigResponse(
                                 success=True,

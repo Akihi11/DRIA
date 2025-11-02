@@ -35,11 +35,6 @@ const ChatPage: React.FC = () => {
   const [channelModalVisible, setChannelModalVisible] = useState<boolean>(false)
   const [selectedChannels, setSelectedChannels] = useState<string[]>([])
 
-  const containsNg = (name: string) => /(^|[^A-Za-z])Ng(\(|[^A-Za-z]|$)|转速|低压/.test(name)
-  const containsNp = (name: string) => /(^|[^A-Za-z])Np(\(|[^A-Za-z]|$)|高压/.test(name)
-  const containsTemp = (name: string) => /(温度|Temperature|°C)/i.test(name)
-  const containsPressure = (name: string) => /(压力|Pressure|kPa)/i.test(name)
-
   // Initialize session on component mount
   useEffect(() => {
     const newSessionId = uuidv4()
@@ -49,56 +44,11 @@ const ChatPage: React.FC = () => {
     const welcomeMessage: Message = {
       id: uuidv4(),
       type: 'ai',
-      content: '您好！我是AI助手，可以帮助您分析数据并生成报表。请先上传您的数据文件（支持CSV、Excel格式），然后告诉我您的分析需求。',
+      content: '您好！我是AI报表生成助手，可以帮助您分析数据并生成报表。请先上传您的数据文件（支持CSV、Excel格式），然后告诉我您的分析需求。',
       timestamp: new Date()
     }
     setMessages([welcomeMessage])
   }, [])
-
-  // 检查配置状态
-  const checkConfigStatus = async () => {
-    if (!sessionId) return
-    
-    try {
-      const status = await apiService.getConfigStatus(sessionId)
-      if (status && status.state !== 'initial' && status.state !== 'completed') {
-        setConfigMode({
-          isActive: true,
-          sessionId: sessionId,
-          currentState: status.state,
-          reportType: status.report_type || '未知',
-          currentParams: status.current_params || {}
-        })
-      } else {
-        // 如果不是活跃配置状态，清空配置模式
-        if (configMode.isActive) {
-          setConfigMode({
-            isActive: false,
-            sessionId: '',
-            currentState: '',
-            reportType: '',
-            currentParams: {}
-          })
-        }
-      }
-    } catch (error) {
-      // 如果是404错误，说明没有配置会话，确保配置模式关闭
-      if ((error as any).response?.status === 404) {
-        if (configMode.isActive) {
-          setConfigMode({
-            isActive: false,
-            sessionId: '',
-            currentState: '',
-            reportType: '',
-            currentParams: {}
-          })
-        }
-      } else {
-        // 其他错误只记录日志，不影响正常对话
-        console.log('Config status check failed:', error)
-      }
-    }
-  }
 
   // 完成配置
   const handleCompleteConfig = async () => {
@@ -211,11 +161,8 @@ const ChatPage: React.FC = () => {
       const cancelMessage: Message = {
         id: uuidv4(),
         type: 'ai',
-        content: '配置已取消，回到对话模式。您可以继续与我聊天，或者重新开始配置报表。',
-        timestamp: new Date(),
-        metadata: {
-          suggestedActions: ['稳态分析', '功能计算', '状态评估', '完整报表']
-        }
+        content: '配置已取消，回到对话模式。您可以继续与我聊天，或者重新上传文件开始配置报表。',
+        timestamp: new Date()
       }
       
       setMessages(prev => [...prev, cancelMessage])
@@ -235,11 +182,8 @@ const ChatPage: React.FC = () => {
       const cancelMessage: Message = {
         id: uuidv4(),
         type: 'ai',
-        content: '配置已取消，回到对话模式。您可以继续与我聊天，或者重新开始配置报表。',
-        timestamp: new Date(),
-        metadata: {
-          suggestedActions: ['稳态分析', '功能计算', '状态评估', '完整报表']
-        }
+        content: '配置已取消，回到对话模式。您可以继续与我聊天，或者重新上传文件开始配置报表。',
+        timestamp: new Date()
       }
       
       setMessages(prev => [...prev, cancelMessage])

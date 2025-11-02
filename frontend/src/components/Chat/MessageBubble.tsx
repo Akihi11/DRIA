@@ -5,6 +5,7 @@ import {
   RobotOutlined,
   DownloadOutlined
 } from '@ant-design/icons'
+import ReactMarkdown from 'react-markdown'
 import { Message } from '../../types/store'
 import FileAnalysisResult from '../FileAnalysis/FileAnalysisResult'
 import apiService from '../../services/api'
@@ -81,8 +82,73 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
       )
     }
 
-    // Regular message content
-    return message.content
+    // Regular message content - render as markdown
+    return (
+      <ReactMarkdown
+        components={{
+          // 自定义样式
+          p: ({ children }) => <p style={{ margin: '0.5em 0', lineHeight: '1.6' }}>{children}</p>,
+          code: ({ children, className }) => {
+            const isInline = !className
+            return isInline ? (
+              <code style={{ 
+                background: '#f5f5f5', 
+                padding: '2px 6px', 
+                borderRadius: '3px',
+                fontFamily: 'monospace',
+                fontSize: '0.9em'
+              }}>{children}</code>
+            ) : (
+              <pre style={{
+                background: '#f5f5f5',
+                padding: '12px',
+                borderRadius: '4px',
+                overflow: 'auto',
+                margin: '0.5em 0'
+              }}>
+                <code className={className} style={{ 
+                  fontFamily: 'monospace',
+                  fontSize: '0.9em'
+                }}>{children}</code>
+              </pre>
+            )
+          },
+          ul: ({ children }) => <ul style={{ margin: '0.5em 0', paddingLeft: '20px' }}>{children}</ul>,
+          ol: ({ children }) => <ol style={{ margin: '0.5em 0', paddingLeft: '20px' }}>{children}</ol>,
+          li: ({ children }) => <li style={{ margin: '0.25em 0', lineHeight: '1.6' }}>{children}</li>,
+          strong: ({ children }) => <strong style={{ fontWeight: 'bold' }}>{children}</strong>,
+          em: ({ children }) => <em style={{ fontStyle: 'italic' }}>{children}</em>,
+          h1: ({ children }) => <h1 style={{ fontSize: '1.5em', margin: '0.8em 0 0.5em 0', fontWeight: 'bold' }}>{children}</h1>,
+          h2: ({ children }) => <h2 style={{ fontSize: '1.3em', margin: '0.8em 0 0.5em 0', fontWeight: 'bold' }}>{children}</h2>,
+          h3: ({ children }) => <h3 style={{ fontSize: '1.1em', margin: '0.8em 0 0.5em 0', fontWeight: 'bold' }}>{children}</h3>,
+          blockquote: ({ children }) => (
+            <blockquote style={{ 
+              borderLeft: '4px solid #ddd', 
+              paddingLeft: '1em', 
+              margin: '0.5em 0',
+              color: '#666',
+              fontStyle: 'italic'
+            }}>{children}</blockquote>
+          ),
+          a: ({ children, href }) => (
+            <a 
+              href={href} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              style={{ 
+                color: '#1890ff',
+                textDecoration: 'none'
+              }}
+            >
+              {children}
+            </a>
+          ),
+          hr: () => <hr style={{ border: 'none', borderTop: '1px solid #e8e8e8', margin: '1em 0' }} />,
+        }}
+      >
+        {message.content || ''}
+      </ReactMarkdown>
+    )
   }
 
   const renderSuggestedActions = () => {

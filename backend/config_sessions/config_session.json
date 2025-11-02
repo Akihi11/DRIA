@@ -1,8 +1,8 @@
 {
   "sourceFileId": "Simulated_Data.csv",
-  "fileId": "eb431717-17e7-42ed-835d-9c60fd3db9ef",
+  "fileId": "91122993-abb5-433d-b993-3de910669953",
   "configFileName": "config_session.json",
-  "uploadTime": "2025-11-02T16:06:10.860596",
+  "uploadTime": "2025-11-02T18:28:24.289543",
   "channels": [
     {
       "channel_name": "系统电流",
@@ -111,7 +111,7 @@
   "reportType": "稳态分析",
   "history": [
     {
-      "timestamp": "2025-11-02T16:08:05.829910",
+      "timestamp": "2025-11-02T18:28:26.449229",
       "action": "set_report_type",
       "value": "稳态分析"
     }

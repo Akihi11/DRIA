@@ -53,9 +53,7 @@ async def process_dialogue(request: DialogueRequest):
             return await handle_normal_dialogue(request)
             
     except Exception as e:
-        import traceback
-        print(f"[ERROR] Dialogue API Error: {e}")
-        print(f"[ERROR] Traceback: {traceback.format_exc()}")
+        logger.error(f"Dialogue API Error: {e}", exc_info=True)
         
         return DialogueResponse(
             session_id=request.session_id,
@@ -260,7 +258,7 @@ def get_config_suggestions(current_state: str) -> List[str]:
     if current_state == ConfigState.DISPLAY_CHANNELS:
         return ['选择 Ng(rpm)', '选择 Np(rpm)', '选择 Temperature(°C)', '选择 Pressure(kPa)', '完成通道选择', '取消配置']
     elif current_state == ConfigState.TRIGGER_COMBO:
-        return ['仅用条件一', '仅用条件二', 'AND', '返回修改通道']
+        return ['仅用条件一', '仅用条件二', 'AND']
     elif current_state == ConfigState.PARAMETER_CONFIG:
         return ['修改统计方法', '修改阈值', '修改时间窗口', '确认配置', '取消配置']
     elif current_state == ConfigState.CONFIRMATION:

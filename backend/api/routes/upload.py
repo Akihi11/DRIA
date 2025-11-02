@@ -93,7 +93,6 @@ async def upload_file(file: UploadFile = File(...)):
         # 确保分析结果有效
         if not analysis_result or not analysis_result.get("success"):
             logger.warning(f"文件分析可能失败，但仍继续创建JSON文件。结果: {analysis_result}")
-            print(f"[WARNING] 文件分析可能失败: {analysis_result}")
         
         # 构建响应数据
         response_data = {
@@ -109,16 +108,12 @@ async def upload_file(file: UploadFile = File(...)):
 
         # 创建基于config_full.json模板的配置文件，存储通道信息和统计值
         # 必须在 recreate 异常捕获之前执行，确保即使失败也能看到错误
-        print(f"[DEBUG] 开始创建JSON文件，file_id: {file_id}")
         try:
             # 存放在 backend/config_sessions/ 目录
             # upload.py 位于 backend/api/routes/upload.py
             # __file__ 的 parent.parent.parent 就是 backend 目录
             # 但也可以使用代码中已定义的 parent_dir（第16行已计算好）
             config_dir = CONFIG_PATH.parent
-            
-            print(f"[DEBUG] parent_dir (backend): {parent_dir.absolute()}")
-            print(f"[DEBUG] config_dir: {config_dir.absolute()}")
             
             config_dir.mkdir(parents=True, exist_ok=True)
             
@@ -127,19 +122,12 @@ async def upload_file(file: UploadFile = File(...)):
             # config_filename = f"{timestamp_str}.json"
             # config_path = config_dir / config_filename
             
-            print(f"[DEBUG] config_path: {CONFIG_PATH.absolute()}")
-            
-            # 确保分析结果有数据
-            print(f"[DEBUG] analysis_result success: {analysis_result.get('success', False)}")
-            print(f"[DEBUG] channels count: {len(analysis_result.get('channels', []))}")
-            
             # 构建符合config_full.json模板结构的配置
             channels_data = []
             channels_list = analysis_result.get("channels", []) if analysis_result else []
             
             if not channels_list:
                 logger.warning("分析结果中没有通道数据，将创建空的channels数组")
-                print(f"[WARNING] 分析结果中没有通道数据，channels_list为空。analysis_result: {analysis_result}")
             
             for ch in channels_list:
                 if not ch or not ch.get("channel_name"):
@@ -163,10 +151,7 @@ async def upload_file(file: UploadFile = File(...)):
                     })
                 except Exception as ch_err:
                     logger.warning(f"处理通道 {ch.get('channel_name', 'unknown')} 时出错: {ch_err}")
-                    print(f"[WARNING] 处理通道时出错: {ch_err}")
                     continue
-            
-            print(f"[DEBUG] 处理后的channels_data数量: {len(channels_data)}")
             
             config_content = {
                 "sourceFileId": file.filename,
@@ -183,22 +168,8 @@ async def upload_file(file: UploadFile = File(...)):
                 json.dump(config_content, f, ensure_ascii=False, indent=2)
             
             logger.info(f"✅ 已创建配置文件: {CONFIG_PATH}")
-            print(f"[SUCCESS] ✅ 已创建配置文件: {CONFIG_PATH.absolute()}")
-            print(f"[SUCCESS] 文件大小: {CONFIG_PATH.stat().st_size} bytes")
-            
-            # 验证文件是否真的创建成功
-            if CONFIG_PATH.exists():
-                print(f"[SUCCESS] 文件验证：存在")
-            else:
-                print(f"[ERROR] 文件验证失败：文件不存在！")
         except Exception as config_err:
             logger.error(f"❌ 创建配置文件失败: {config_err}", exc_info=True)
-            print(f"[ERROR] ❌ 创建配置文件失败: {config_err}")
-            print(f"[ERROR] 错误类型: {type(config_err).__name__}")
-            import traceback
-            traceback.print_exc()
-            # 不要因为JSON创建失败而影响文件上传响应
-            print(f"[WARNING] JSON创建失败，但文件上传成功")
 
         return response_data
         

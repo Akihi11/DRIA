@@ -10,6 +10,7 @@ from pathlib import Path
 import logging
 import json
 import os
+import re
 
 import pandas as pd
 
@@ -186,6 +187,35 @@ class ReportConfigManager:
                 return '等于'
         return None
     
+    def _normalize_logic_value(self, value: Any) -> str:
+        """
+        规范化logic值：将中文转换为符号，去除空格
+        例如："小于等于" -> "<=", ">=" -> ">=", " <= " -> "<="
+        """
+        if value is None:
+            return value
+        
+        value_str = str(value).strip()
+        
+        # 逻辑值映射：中文 -> 符号
+        logic_map = {
+            '大于': '>',
+            '小于': '<',
+            '等于': '==',
+            '大于等于': '>=',
+            '小于等于': '<=',
+            '>': '>',
+            '<': '<',
+            '==': '==',
+            '>=': '>=',
+            '<=': '<='
+        }
+        
+        # 如果已经是符号格式，直接返回（去除空格后）
+        normalized = logic_map.get(value_str, value_str)
+        
+        return normalized
+    
     def _match_channel_name(self, value: Any, action: str, display_channels: List[str]) -> Optional[str]:
         """
         匹配通道名称，支持大小写不敏感匹配
@@ -309,15 +339,9 @@ class ReportConfigManager:
                 params['triggerDesc'] = trigger_desc
                 
                 # 保存displayChannels到JSON文件（必须执行，不能因为异常而跳过）
-                print(f"[DEBUG] ========== 准备保存displayChannels ==========")
-                print(f"[DEBUG] display: {display}")
-                print(f"[DEBUG] session['file_id']: {session.get('file_id')}")
-                print(f"[DEBUG] params['displayChannels']: {params.get('displayChannels')}")
                 self._save_display_channels_to_json(session, params)
                 # _save_display_channels_to_json会直接修改params['displayChannels']为排序后的顺序
                 display = params.get('displayChannels', display)  # 使用排序后的顺序
-                print(f"[DEBUG] ========== 保存displayChannels调用完成 ==========")
-                print(f"[DEBUG] 排序后的displayChannels: {display}")
                 
                 # 直接进入TRIGGER_COMBO状态，跳过选择转速通道步骤
                 session['state'] = ConfigState.TRIGGER_COMBO
@@ -329,7 +353,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.TRIGGER_COMBO,
                     message=channels_text + "已为您填充默认条件一/二：\n条件一：{}\n条件二：{}\n\n请选择组合逻辑：仅用条件一 / 仅用条件二 / AND。".format(desc1, desc2),
-                    suggested_actions=['仅用条件一', '仅用条件二', 'AND', '返回修改通道'],
+                    suggested_actions=['仅用条件一', '仅用条件二', 'AND'],
                     current_params=params
                 )
         elif current_state == ConfigState.TRIGGER_COMBO:
@@ -353,7 +377,7 @@ class ReportConfigManager:
 - 监控通道: {cond.get('channel', '未设置')}
 - 统计方法: {cond.get('statistic', '未设置')}
 - 持续时长: {cond.get('duration_sec', '未设置')}秒
-- 判断依据逻辑: {cond.get('logic', '未设置')}
+- 判断依据: {cond.get('logic', '未设置')}
 - 阈值: {cond.get('threshold', '未设置')}"""
                 
                 # 根据组合逻辑生成消息
@@ -370,7 +394,7 @@ class ReportConfigManager:
                         f"- 监控通道（channel）：可从已选择的通道中选择\n"
                         f"- 统计方法（statistic）：可改为 平均值/最大值/最小值/中位数 等\n"
                         f"- 持续时长（duration_sec）：单位秒\n"
-                        f"- 判断依据逻辑（logic）：可改为 大于/小于/大于等于/小于等于\n"
+                        f"- 判断依据（logic）：可改为 大于/小于/大于等于/小于等于\n"
                         f"- 阈值（threshold）：数值\n\n"
                         f"您可以通过自然语言进行参数修改，例如：\n"
                         f"- \"把条件一的阈值改为9000\"\n"
@@ -391,7 +415,7 @@ class ReportConfigManager:
                         f"- 监控通道（channel）：可从已选择的通道中选择\n"
                         f"- 统计方法（statistic）：固定为\"变化率\"，不可修改\n"
                         f"- 持续时长（duration_sec）：单位秒\n"
-                        f"- 判断依据逻辑（logic）：可改为 大于/小于/大于等于/小于等于\n"
+                        f"- 判断依据（logic）：可改为 大于/小于/大于等于/小于等于\n"
                         f"- 阈值（threshold）：数值\n\n"
                         f"您可以通过自然语言进行参数修改，例如：\n"
                         f"- \"把条件二的阈值改为100\"\n"
@@ -412,18 +436,18 @@ class ReportConfigManager:
                         f"条件二：{cond2_desc}\n\n"
                         f"{_build_condition_params_message(cond1, '条件一')}\n"
                         f"{_build_condition_params_message(cond2, '条件二')}\n\n"
-                        f"【可修改的参数】：\n"
+                        f"【可修改的参数】：\n\n"
                         f"条件一：\n"
                         f"- 监控通道（channel）：可从已选择的通道中选择\n"
                         f"- 统计方法（statistic）：可改为 平均值/最大值/最小值/中位数 等\n"
                         f"- 持续时长（duration_sec）：单位秒\n"
-                        f"- 判断依据逻辑（logic）：可改为 大于/小于/大于等于/小于等于\n"
-                        f"- 阈值（threshold）：数值\n"
+                        f"- 判断依据（logic）：可改为 大于/小于/大于等于/小于等于\n"
+                        f"- 阈值（threshold）：数值\n\n"
                         f"条件二：\n"
                         f"- 监控通道（channel）：可从已选择的通道中选择\n"
                         f"- 统计方法（statistic）：固定为\"变化率\"，不可修改\n"
                         f"- 持续时长（duration_sec）：单位秒\n"
-                        f"- 判断依据逻辑（logic）：可改为 大于/小于/大于等于/小于等于\n"
+                        f"- 判断依据（logic）：可改为 大于/小于/大于等于/小于等于\n"
                         f"- 阈值（threshold）：数值\n\n"
                         f"您可以通过自然语言进行参数修改，例如：\n"
                         f"- \"把条件一的阈值改为9000\"\n"
@@ -441,29 +465,24 @@ class ReportConfigManager:
                     suggested_actions=[],  # 不使用按钮，让用户用自然语言对话
                     current_params=params
                 )
-            elif action == '返回修改通道':
-                session['state'] = ConfigState.DISPLAY_CHANNELS
-                return ConfigResponse(
-                    session_id=session_id,
-                    state=ConfigState.DISPLAY_CHANNELS,
-                    message=self.get_step_message(report_type, ConfigState.DISPLAY_CHANNELS),
-                    suggested_actions=self.get_channel_options(report_type),
-                    current_params=params
-                )
         
         elif current_state == ConfigState.PARAMETER_CONFIG:
             trigger_logic = params.get('triggerLogic', {})
             combination = trigger_logic.get('combination', 'AND')
-            step = session.get('step', 1)
             # 允许编辑参数列表（包括监控通道）
             display_channels = params.get('displayChannels', [])
             def _msg_for_condition(cond: dict, cond_name: str):
+                # 判断统计方法是否可修改（条件二的统计方法固定为"变化率"，不可修改）
+                statistic = cond.get('statistic', '')
+                statistic_modifiable = not (cond_name == '条件二' and statistic == '变化率')
+                statistic_label = f"{statistic} (不可修改)" if not statistic_modifiable else statistic
+                
                 return f"\n【当前为{cond_name}，参数如下】\n" \
-                       f"- 监控通道: {cond.get('channel', '')} (可修改，可选通道: {', '.join(display_channels)})\n" \
-                       f"- 统计方法: {cond.get('statistic', '')} (可修改)\n" \
-                       f"- 持续时长(秒): {cond.get('duration_sec', '')} (可修改)\n" \
-                       f"- 判断依据: {cond.get('logic', '')} (可修改)\n" \
-                       f"- 阈值: {cond.get('threshold', '')} (可修改)"
+                       f"- 监控通道: {cond.get('channel', '')} (可选通道: {', '.join(display_channels)})\n" \
+                       f"- 统计方法: {statistic_label}\n" \
+                       f"- 持续时长(秒): {cond.get('duration_sec', '')}\n" \
+                       f"- 判断依据: {cond.get('logic', '')}\n" \
+                       f"- 阈值: {cond.get('threshold', '')}"
             #########################################################################################
             if combination == 'Cond1_Only':
                 condition = trigger_logic.get('condition1', {})
@@ -499,7 +518,13 @@ class ReportConfigManager:
                     # 尝试匹配字段并更新
                     field_updated = False
                     for k, v in field_map.items():
-                        if k in action:
+                        # 对于"判断依据"字段，同时支持"判断依据"、"逻辑"和"判据"三种说法
+                        if k == '判断依据':
+                            matched = '判断依据' in action or '逻辑' in action or '判据' in action
+                        else:
+                            matched = k in action
+                        
+                        if matched:
                             # 优先使用value参数（LLM解析出的值），如果value为None，尝试从action字符串中提取
                             extracted_value = None
                             if value is not None:
@@ -520,6 +545,9 @@ class ReportConfigManager:
                                             suggested_actions=[],
                                             current_params=params
                                         )
+                                # 规范化logic值：将中文转换为符号，去除空格
+                                if v == 'logic':
+                                    extracted_value = self._normalize_logic_value(extracted_value)
                                 condition[v] = extracted_value
                                 field_updated = True
                                 break
@@ -530,8 +558,28 @@ class ReportConfigManager:
                         session['last_modified_condition'] = '条件一'
                         self._save_display_channels_to_json(session, params)  # 立即保存
                         self._save_conditions_to_json(session, params)  # 保存conditions
-                        field_name = next((k for k in field_map.keys() if k in action), '参数')
-                        field_key = next((v for k, v in field_map.items() if k in action), None)
+                        # 获取field_name，支持"逻辑"、"判断依据"和"判据"三种说法
+                        field_name = None
+                        for k in field_map.keys():
+                            if k == '判断依据':
+                                if '判断依据' in action or '逻辑' in action or '判据' in action:
+                                    field_name = k
+                                    break
+                            elif k in action:
+                                field_name = k
+                                break
+                        field_name = field_name or '参数'
+                        
+                        # 获取field_key，支持"逻辑"、"判断依据"和"判据"三种说法
+                        field_key = None
+                        for k, v in field_map.items():
+                            if k == '判断依据':
+                                if '判断依据' in action or '逻辑' in action or '判据' in action:
+                                    field_key = v
+                                    break
+                            elif k in action:
+                                field_key = v
+                                break
                         actual_value = value if value is not None else (condition.get(field_key) if field_key else None)
                         return ConfigResponse(
                             session_id=session_id,
@@ -602,7 +650,13 @@ class ReportConfigManager:
                     # 尝试匹配字段并更新
                     field_updated = False
                     for k, v in field_map.items():
-                        if k in action:
+                        # 对于"判断依据"字段，同时支持"判断依据"、"逻辑"和"判据"三种说法
+                        if k == '判断依据':
+                            matched = '判断依据' in action or '逻辑' in action or '判据' in action
+                        else:
+                            matched = k in action
+                        
+                        if matched:
                             # 条件二的统计方法是固定的"变化率"，不可修改
                             if v == 'statistic':
                                 return ConfigResponse(
@@ -629,6 +683,9 @@ class ReportConfigManager:
                                             suggested_actions=[],
                                             current_params=params
                                         )
+                                # 规范化logic值：将中文转换为符号，去除空格
+                                if v == 'logic':
+                                    extracted_value = self._normalize_logic_value(extracted_value)
                                 condition[v] = extracted_value
                                 field_updated = True
                                 break
@@ -639,8 +696,28 @@ class ReportConfigManager:
                         session['last_modified_condition'] = '条件二'
                         self._save_display_channels_to_json(session, params)
                         self._save_conditions_to_json(session, params)  # 保存conditions
-                        field_name = next((k for k in field_map.keys() if k in action), '参数')
-                        field_key = next((v for k, v in field_map.items() if k in action), None)
+                        # 获取field_name，支持"逻辑"、"判断依据"和"判据"三种说法
+                        field_name = None
+                        for k in field_map.keys():
+                            if k == '判断依据':
+                                if '判断依据' in action or '逻辑' in action or '判据' in action:
+                                    field_name = k
+                                    break
+                            elif k in action:
+                                field_name = k
+                                break
+                        field_name = field_name or '参数'
+                        
+                        # 获取field_key，支持"逻辑"、"判断依据"和"判据"三种说法
+                        field_key = None
+                        for k, v in field_map.items():
+                            if k == '判断依据':
+                                if '判断依据' in action or '逻辑' in action or '判据' in action:
+                                    field_key = v
+                                    break
+                            elif k in action:
+                                field_key = v
+                                break
                         actual_value = value if value is not None else (condition.get(field_key) if field_key else None)
                         return ConfigResponse(
                             session_id=session_id,
@@ -680,19 +757,28 @@ class ReportConfigManager:
                     )
             #########################################################################################
             elif combination == 'AND':
-                # 分步：step 1 配 condition1，确认后 step=2，配 condition2。
-                # 但如果action中明确指定了"条件一"或"条件二"，则优先使用指定的条件
+                # 优先级：1. 用户明确指定"条件一"或"条件二" -> 使用指定的条件
+                #        2. 用户未指定 -> 使用last_modified_condition（上一次修改的条件）
+                #        3. 都没有 -> 默认条件一
                 target_condition = None
-                target_step = step
                 if action and '条件一' in action:
                     target_condition = 'condition1'
-                    target_step = 1
                 elif action and '条件二' in action:
                     target_condition = 'condition2'
-                    target_step = 2
                 
-                # 根据目标条件或step决定处理哪个条件
-                if target_condition == 'condition1' or (target_condition is None and step == 1):
+                if not target_condition:
+                    # 如果用户没有明确指定条件，优先使用last_modified_condition
+                    last_modified_condition = session.get('last_modified_condition')
+                    if last_modified_condition == '条件一':
+                        target_condition = 'condition1'
+                    elif last_modified_condition == '条件二':
+                        target_condition = 'condition2'
+                    else:
+                        # 如果last_modified_condition也没有，默认条件一
+                        target_condition = 'condition1'
+                
+                # 根据目标条件决定处理哪个条件
+                if target_condition == 'condition1':
                     condition = trigger_logic.get('condition1', {})
                     # 从action中移除"条件一"，以便后续字段匹配
                     action_for_match = action
@@ -715,7 +801,7 @@ class ReportConfigManager:
                                 return ConfigResponse(
                                     session_id=session_id,
                                     state=ConfigState.PARAMETER_CONFIG,
-                                    message=f"[step1] 已更改监控通道为 {new_channel}。{_msg_for_condition(condition, '条件一')}",
+                                    message=f"已更改监控通道为 {new_channel}。{_msg_for_condition(condition, '条件一')}",
                                     suggested_actions=[],
                                     current_params=params
                                 )
@@ -730,7 +816,13 @@ class ReportConfigManager:
                         # 尝试匹配字段并更新
                         field_updated = False
                         for k, v in field_map.items():
-                            if k in action_for_match:
+                            # 对于"判断依据"字段，支持"判断依据"、"逻辑"和"判据"三种说法
+                            if k == '判断依据':
+                                matched = '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match
+                            else:
+                                matched = k in action_for_match
+                            
+                            if matched:
                                 # 优先使用value参数（LLM解析出的值），如果value为None，尝试从action字符串中提取
                                 extracted_value = None
                                 if value is not None:
@@ -761,13 +853,33 @@ class ReportConfigManager:
                             session['last_modified_condition'] = '条件一'
                             self._save_display_channels_to_json(session, params)
                             self._save_conditions_to_json(session, params)  # 保存conditions
-                            field_name = next((k for k in field_map.keys() if k in action_for_match), '参数')
-                            field_key = next((v for k, v in field_map.items() if k in action_for_match), None)
+                            # 获取field_name，支持"逻辑"、"判断依据"和"判据"三种说法
+                            field_name = None
+                            for k in field_map.keys():
+                                if k == '判断依据':
+                                    if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                        field_name = k
+                                        break
+                                elif k in action_for_match:
+                                    field_name = k
+                                    break
+                            field_name = field_name or '参数'
+                            
+                            # 获取field_key，支持"逻辑"、"判断依据"和"判据"三种说法
+                            field_key = None
+                            for k, v in field_map.items():
+                                if k == '判断依据':
+                                    if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                        field_key = v
+                                        break
+                                elif k in action_for_match:
+                                    field_key = v
+                                    break
                             actual_value = value if value is not None else (condition.get(field_key) if field_key else None)
                             return ConfigResponse(
                                 session_id=session_id,
                                 state=ConfigState.PARAMETER_CONFIG,
-                                message=f"[step1] 已更改{field_name}为{actual_value}。{_msg_for_condition(condition,'条件一')}",
+                                message=f"已更改{field_name}为{actual_value}。{_msg_for_condition(condition,'条件一')}",
                                 suggested_actions=[],
                                 current_params=params
                             )
@@ -784,7 +896,8 @@ class ReportConfigManager:
                         # 记录条件一的displayChannels（复制列表，避免引用问题）
                         condition['displayChannels'] = list(params.get('displayChannels', []))
                         params['triggerLogic']['condition1'] = condition
-                        session['step'] = 2
+                        # 更新last_modified_condition为条件二，以便后续默认编辑条件二
+                        session['last_modified_condition'] = '条件二'
                         return ConfigResponse(
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
@@ -801,7 +914,7 @@ class ReportConfigManager:
                             suggested_actions=[],
                             current_params=params
                         )
-                elif target_condition == 'condition2' or (target_condition is None and step == 2):
+                elif target_condition == 'condition2':
                     condition = trigger_logic.get('condition2', {})
                     # 从action中移除"条件二"，以便后续字段匹配
                     action_for_match = action
@@ -839,7 +952,13 @@ class ReportConfigManager:
                         # 尝试匹配字段并更新
                         field_updated = False
                         for k, v in field_map.items():
-                            if k in action_for_match:
+                            # 对于"判断依据"字段，支持"判断依据"、"逻辑"和"判据"三种说法
+                            if k == '判断依据':
+                                matched = '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match
+                            else:
+                                matched = k in action_for_match
+                            
+                            if matched:
                                 # 条件二的统计方法是固定的"变化率"，不可修改
                                 if v == 'statistic':
                                     return ConfigResponse(
@@ -876,13 +995,33 @@ class ReportConfigManager:
                             session['last_modified_condition'] = '条件二'
                             self._save_display_channels_to_json(session, params)
                             self._save_conditions_to_json(session, params)  # 保存conditions
-                            field_name = next((k for k in field_map.keys() if k in action_for_match), '参数')
-                            field_key = next((v for k, v in field_map.items() if k in action_for_match), None)
+                            # 获取field_name，支持"逻辑"、"判断依据"和"判据"三种说法
+                            field_name = None
+                            for k in field_map.keys():
+                                if k == '判断依据':
+                                    if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                        field_name = k
+                                        break
+                                elif k in action_for_match:
+                                    field_name = k
+                                    break
+                            field_name = field_name or '参数'
+                            
+                            # 获取field_key，支持"逻辑"、"判断依据"和"判据"三种说法
+                            field_key = None
+                            for k, v in field_map.items():
+                                if k == '判断依据':
+                                    if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                        field_key = v
+                                        break
+                                elif k in action_for_match:
+                                    field_key = v
+                                    break
                             actual_value = value if value is not None else (condition.get(field_key) if field_key else None)
                             return ConfigResponse(
                                 session_id=session_id,
                                 state=ConfigState.PARAMETER_CONFIG,
-                                message=f"[step2] 已更改{field_name}为{actual_value}。{_msg_for_condition(condition,'条件二')}",
+                                message=f"已更改{field_name}为{actual_value}。{_msg_for_condition(condition,'条件二')}",
                                 suggested_actions=[],
                                 current_params=params
                             )
@@ -918,6 +1057,19 @@ class ReportConfigManager:
                             suggested_actions=[],
                             current_params=params
                         )
+                else:
+                    # 兜底：如果target_condition仍然是None（理论上不应该发生）
+                    # 默认处理条件一
+                    condition = trigger_logic.get('condition1', {})
+                    condition_name = '条件一'
+                    
+                    return ConfigResponse(
+                        session_id=session_id,
+                        state=ConfigState.PARAMETER_CONFIG,
+                        message=f"未能识别您要修改的条件。{_msg_for_condition(condition, condition_name)}\n请明确指定要修改的条件，例如：'把条件一的阈值改为2000'、'修改条件二的统计方法为最大值'。",
+                        suggested_actions=[],
+                        current_params=params
+                    )
             # 兜底：如果没有匹配到任何组合逻辑，提示用户
             return ConfigResponse(
                 session_id=session_id,
@@ -1040,10 +1192,8 @@ class ReportConfigManager:
                         json.dump(final_config, f, ensure_ascii=False, indent=2)
                     
                     logger.info(f"已保存配置到: {out_path}")
-                    print(f"[DEBUG] 已保存配置到: {out_path.absolute()}")
                 except Exception as e:
                     logger.error(f"保存稳态配置失败: {e}", exc_info=True)
-                    print(f"[ERROR] 保存稳态配置失败: {e}")
                     import traceback
                     traceback.print_exc()
                 return ConfigResponse(
@@ -1155,7 +1305,7 @@ class ReportConfigManager:
         if state == ConfigState.DISPLAY_CHANNELS:
             return self.get_channel_options(report_type, params)
         elif state == ConfigState.TRIGGER_COMBO:
-            return ['仅用条件一', '仅用条件二', 'AND', '返回修改通道']
+            return ['仅用条件一', '仅用条件二', 'AND']
         elif state == ConfigState.PARAMETER_CONFIG:
             return self.get_parameter_options(report_type)
         elif state == ConfigState.SELECT_JUDGE_CHANNEL:
@@ -1267,7 +1417,6 @@ class ReportConfigManager:
                 # 更新params中的displayChannels为排序后的顺序
                 params['displayChannels'] = sorted_channels
                 logger.info(f"已按照文件通道顺序排序displayChannels: {display_channels}")
-                print(f"[DEBUG] 已按照文件通道顺序排序displayChannels: {display_channels}")
             
             # 更新displayChannels到reportConfig.stableState.displayChannels
             if 'reportConfig' not in existing_config:
@@ -1286,10 +1435,8 @@ class ReportConfigManager:
                 json.dump(existing_config, f, ensure_ascii=False, indent=2)
             
             logger.info(f"已保存displayChannels到: {config_path}")
-            print(f"[DEBUG] 已保存displayChannels到: {config_path.absolute()}")
         except Exception as e:
             logger.error(f"保存displayChannels到JSON文件失败: {e}", exc_info=True)
-            print(f"[ERROR] 保存displayChannels失败: {e}")
             import traceback
             traceback.print_exc()
     
@@ -1395,10 +1542,8 @@ class ReportConfigManager:
                 json.dump(existing_config, f, ensure_ascii=False, indent=2)
             
             logger.info(f"已保存conditions到: {config_path}")
-            print(f"[DEBUG] 已保存conditions到: {config_path.absolute()}, conditions: {conditions}")
         except Exception as e:
             logger.error(f"保存conditions到JSON文件失败: {e}", exc_info=True)
-            print(f"[ERROR] 保存conditions失败: {e}")
             import traceback
             traceback.print_exc()
 
@@ -1528,7 +1673,7 @@ async def parse_config_intent_with_llm(utterance: str, current_params: dict, cur
     # 构建上下文提示
     context_hint = ""
     if current_condition:
-        context_hint = f"\n\n【重要】当前上下文：您正在编辑{current_condition}的参数。\n- 如果用户没有明确指定是\"条件一\"还是\"条件二\"，action字段中必须包含当前条件名称。\n- 例如，如果当前在编辑条件一，用户说\"把阈值改为2000\"，必须返回{{\"action\": \"修改条件一阈值\", \"value\": 2000}}，而不是{{\"action\": \"修改阈值\", \"value\": 2000}}。\n- 如果用户明确说了\"条件一\"或\"条件二\"，则按照用户说的条件返回。"
+        context_hint = f"\n\n【⚠️⚠️⚠️ 非常重要】当前上下文：您正在编辑{current_condition}的参数。\n- 【⚠️⚠️⚠️ 最高优先级规则】如果用户明确说了\"条件一\"或\"条件二\"，必须无条件按照用户明确说的条件返回，绝对不能受当前上下文（current_condition）影响！例如：如果当前上下文是条件二，但用户明确说\"条件一的阈值改为2000\"，必须返回{{\"action\": \"修改条件一阈值\", \"value\": 2000}}，绝对不能返回\"修改条件二...\"！\n- 如果用户没有明确指定是\"条件一\"还是\"条件二\"，action字段中必须包含当前条件名称（{current_condition}）。\n- 例如，如果当前在编辑条件一，用户说\"把阈值改为2000\"，必须返回{{\"action\": \"修改条件一阈值\", \"value\": 2000}}，而不是{{\"action\": \"修改阈值\", \"value\": 2000}}。\n- 【关键】如果用户同时修改多个参数（使用actions数组），且没有明确指定条件，那么actions数组中的所有action都必须应用到同一个条件（{current_condition}），绝对不能混用！例如，如果current_condition='条件一'，用户说\"通道改为np，统计方法改为最大值\"，必须返回[{{\"action\": \"修改条件一监控通道\", \"value\": \"Np\"}}, {{\"action\": \"修改条件一统计方法\", \"value\": \"最大值\"}}]，绝对不能返回\"修改条件二...\"！"
     
     # 如果强制要求识别多个参数，添加特别提示
     multiple_params_hint = ""
@@ -1549,34 +1694,42 @@ async def parse_config_intent_with_llm(utterance: str, current_params: dict, cur
 用户需求：{utterance}{context_hint}{multiple_params_hint}
 
 重要说明：
+0. 【⚠️⚠️⚠️ 最高优先级规则 - 必须严格遵守】如果用户明确说了"条件一"或"条件二"（例如："条件一的..."、"条件二的..."、"把条件一..."、"修改条件二..."等），必须无条件按照用户明确说的条件返回，绝对不能受当前上下文（current_condition）影响！例如：如果当前上下文是条件二，但用户明确说"条件一的阈值改为2000"，必须返回{{"action": "修改条件一阈值", "value": 2000}}，绝对不能返回"修改条件二..."！用户明确说的条件优先级永远最高！
 1. 如果用户只修改一个参数，返回格式：{{"action": "修改阈值", "value": 2000}}
 2. 如果用户同时修改多个参数（用逗号、顿号、和、以及等连接），必须返回格式：{{"actions": [{{"action": "修改阈值", "value": 2000}}, {{"action": "修改统计方法", "value": "最大值"}}]}}
    - 注意：如果用户说了多个参数，必须使用actions数组，不要只返回单个action！
    - 例如："把阈值改为2000，统计方法改为最大值" -> 必须返回{{"actions": [...]}}，而不是单个{{"action": ...}}
 3. action字段应该包含要修改的参数名称和操作，例如：
-   - "修改条件一阈值"（当用户说"把阈值改为2000"且当前上下文是条件一时）
-   - "修改条件二阈值"（当用户说"把阈值改为2000"且当前上下文是条件二时）
-   - "修改条件一统计方法"（当用户说"修改统计方法为最大值"且当前上下文是条件一时）
-   - "修改条件二持续时长"（当用户说"设置持续时长为5秒"且当前上下文是条件二时）
-   - 注意：如果当前上下文存在，action中必须包含条件名称（"条件一"或"条件二"）
+   - "修改条件一阈值"（当用户说"把阈值改为2000"且当前上下文是条件一时，或用户明确说"条件一的阈值改为2000"时）
+   - "修改条件二阈值"（当用户说"把阈值改为2000"且当前上下文是条件二时，或用户明确说"条件二的阈值改为2000"时）
+   - "修改条件一统计方法"（当用户说"修改统计方法为最大值"且当前上下文是条件一时，或用户明确说"条件一的统计方法改为最大值"时）
+   - "修改条件一监控通道"（当用户说"通道改为np"且当前上下文是条件一时，或用户明确说"条件一的通道改为np"时，注意：不要写成"修改触发逻辑通道"，应该写"修改条件一监控通道"或"修改条件一通道"）
+   - "修改条件二持续时长"（当用户说"设置持续时长为5秒"且当前上下文是条件二时，或用户明确说"条件二的持续时长改为5秒"时）
+   - 注意：如果当前上下文存在且用户没有明确指定条件，action中必须包含条件名称（"条件一"或"条件二"）
+   - 【⚠️特别重要】如果用户同时修改多个参数（使用actions数组），且没有明确指定条件，那么actions数组中的所有action都必须应用到同一个条件（current_condition），必须保持一致！
 4. value字段应该是修改后的具体值，例如：
    - 数字值：2000、5、10等
    - 字符串值："最大值"、"平均值"、"大于"、"小于"等
-5. 【重要】如果当前上下文存在（current_condition不为空），action中必须包含条件名称：
-   - 如果当前在编辑条件一，用户说"把阈值改为2000"，必须返回{{"action": "修改条件一阈值", "value": 2000}}
-   - 如果当前在编辑条件二，用户说"修改统计方法为最大值"，必须返回{{"action": "修改条件二统计方法", "value": "最大值"}}
-   - 如果用户明确说了"条件一"或"条件二"，则按照用户说的条件返回
+   - 注意：如果用户说"判断依据改为最大值"，这里的"最大值"应该是统计方法，不是判断依据。判断依据的值应该是">"、"<"、">="、"<="等。请智能识别用户的真实意图。
+5. 【重要】条件名称的优先级规则：
+   - 最高优先级：如果用户明确说了"条件一"或"条件二"，必须无条件按照用户说的条件返回
+   - 次优先级：如果用户没有明确指定条件，且当前上下文存在（current_condition不为空），action中必须包含当前条件的名称（"条件一"或"条件二"）
+   - 例如：当前上下文是条件二，用户说"把阈值改为2000"（未明确指定条件） -> {{"action": "修改条件二阈值", "value": 2000}}
+   - 例如：当前上下文是条件二，用户明确说"条件一的阈值改为2000" -> {{"action": "修改条件一阈值", "value": 2000}}（必须按照用户明确说的条件返回！）
 6. 如果无法识别用户意图，返回空对象{{}}
 
 示例（单个参数，假设当前上下文是条件一）：
-- 用户说"把条件一的阈值改为2000" -> {{"action": "修改条件一阈值", "value": 2000}}
+- 用户说"把条件一的阈值改为2000" -> {{"action": "修改条件一阈值", "value": 2000}}（用户明确说了条件一）
 - 用户说"把阈值改为2000"（未明确指定条件） -> {{"action": "修改条件一阈值", "value": 2000}}（根据当前上下文）
 - 用户说"修改统计方法为最大值"（未明确指定条件） -> {{"action": "修改条件一统计方法", "value": "最大值"}}（根据当前上下文）
+- 【重要示例】假设当前上下文是条件二，用户明确说"条件一的判断依据改为最大值" -> {{"action": "修改条件一统计方法", "value": "最大值"}}（注意：1. 用户明确说了"条件一"，必须返回"修改条件一..."，不能受当前上下文影响；2. "最大值"是统计方法，不是判断依据，请智能识别用户真实意图）
 
 示例（多个参数 - 必须使用actions数组，假设当前上下文是条件一）：
 - 用户说"把阈值改为2000，统计方法改为最大值"（未明确指定条件） -> {{"actions": [{{"action": "修改条件一阈值", "value": 2000}}, {{"action": "修改条件一统计方法", "value": "最大值"}}]}}（根据当前上下文）
 - 用户说"条件一的阈值改成1000，持续时长改为5秒" -> {{"actions": [{{"action": "修改条件一阈值", "value": 1000}}, {{"action": "修改条件一持续时长", "value": 5}}]}}
 - 用户说"阈值2000，统计方法最大值"（未明确指定条件） -> {{"actions": [{{"action": "修改条件一阈值", "value": 2000}}, {{"action": "修改条件一统计方法", "value": "最大值"}}]}}（根据当前上下文）
+- 用户说"通道改为np，统计方法改为最大值"（未明确指定条件） -> {{"actions": [{{"action": "修改条件一监控通道", "value": "Np"}}, {{"action": "修改条件一统计方法", "value": "最大值"}}]}}（根据当前上下文，两个action必须都是条件一）
+- 【⚠️重要】如果用户没有明确指定条件，actions数组中的所有action都必须应用到同一个条件（current_condition），不能混用！例如，如果current_condition='条件一'，用户说"通道改为np，统计方法改为最大值"，必须返回两个都是"修改条件一..."的action，不能返回"修改条件二..."。
 - 用户说"确认配置" -> {{"action": "确认配置", "value": null}}
 
 请返回JSON格式："""
@@ -1727,21 +1880,19 @@ async def update_report_config(request: ConfigUpdateRequest):
             current_context = {}
             trigger_logic = params.get('triggerLogic', {})
             combination = trigger_logic.get('combination', 'AND')
-            step = session.get('step', 1)
             
-            # 优先使用最后一次操作的条件（如果有记录）
+            # 优先级：1. last_modified_condition（上一次修改的条件）
+            #        2. 默认条件（根据combination判断）
             last_modified_condition = session.get('last_modified_condition')
             
             if last_modified_condition:
                 # 如果记录的最后一次操作的条件存在，优先使用它
                 current_context['current_condition'] = last_modified_condition
             else:
-                # 否则，根据combination和step判断
+                # 否则，根据combination判断默认条件
                 if combination == 'AND':
-                    if step == 1:
-                        current_context['current_condition'] = '条件一'
-                    elif step == 2:
-                        current_context['current_condition'] = '条件二'
+                    # AND模式下，默认条件一
+                    current_context['current_condition'] = '条件一'
                 elif combination == 'Cond1_Only':
                     current_context['current_condition'] = '条件一'
                 elif combination == 'Cond2_Only':
@@ -1777,20 +1928,68 @@ async def update_report_config(request: ConfigUpdateRequest):
                             if single_response.message:
                                 # 尝试从消息中提取关键信息（如"已更改阈值为2000"）
                                 msg = single_response.message
+                                logger.info(f"[提取修改信息-原始消息 {i+1}] 长度: {len(msg)}, 内容: {msg[:300]}...")
+                                
                                 # 移除可能的step前缀（如"[step1]"或"[step2]"）
                                 msg_clean = msg.split(']', 1)[-1].strip() if ']' in msg else msg.strip()
-                                # 提取所有包含"已更改"的句子（可能有多个，如条件一和条件二）
-                                # 先按句号分割，然后筛选包含"已更改"的部分
-                                sentences = msg_clean.split('。')
-                                for sentence in sentences:
-                                    sentence_clean = sentence.strip()
-                                    # 检查是否包含"已更改"，并且是参数修改消息（不是状态提示）
-                                    if '已更改' in sentence_clean and not ('条件一' in sentence_clean and '参数' in sentence_clean and '状态' in sentence_clean):
-                                        # 进一步清理，移除可能的换行符和其他前缀
-                                        detail = sentence_clean.split('\n')[0].strip()
-                                        if detail and detail not in success_details:
+                                logger.info(f"[提取修改信息-清理后消息 {i+1}] {msg_clean[:300]}...")
+                                
+                                # 使用更健壮的正则表达式提取所有"已更改XXX为YYY"的消息
+                                # 这个模式可以匹配："已更改XXX为YYY"（XXX和YYY之间可能有空格）
+                                pattern = r'已更改[^。\n]*?为[^。\n]*?(?=[。\n]|$)'
+                                matches = re.findall(pattern, msg_clean)
+                                logger.info(f"[提取修改信息-正则匹配结果 {i+1}] 找到{len(matches)}个匹配: {matches}")
+                                
+                                found_detail = False
+                                if matches:
+                                    # 提取第一个匹配的消息（每个响应应该只有一个"已更改"消息）
+                                    detail = matches[0].strip()
+                                    # 移除句尾的句号、换行符和空格
+                                    detail = detail.rstrip('。\n ').strip()
+                                    # 规范化空格：将"为 "改为"为"（监控通道消息格式问题）
+                                    detail = re.sub(r'为\s+', '为', detail)
+                                    logger.info(f"[提取修改信息-处理后的detail {i+1}] {detail}")
+                                    # 确保detail是有效的修改消息
+                                    if detail and '已更改' in detail and '为' in detail:
+                                        if detail not in success_details:
                                             success_details.append(detail)
-                                            logger.info(f"[提取修改信息] {detail}")
+                                            logger.info(f"[提取修改信息-正则提取成功 {i+1}] 已添加到列表: {detail}, 当前列表: {success_details}")
+                                            found_detail = True
+                                        else:
+                                            logger.info(f"[提取修改信息-跳过重复 {i+1}] {detail} 已在列表中")
+                                
+                                # 如果正则表达式没找到，尝试按句号分割查找
+                                if not found_detail:
+                                    logger.info(f"[提取修改信息-尝试句子分割 {i+1}]")
+                                    sentences = msg_clean.split('。')
+                                    for idx, sentence in enumerate(sentences):
+                                        sentence_clean = sentence.strip()
+                                        # 检查是否包含"已更改"和"为"
+                                        if '已更改' in sentence_clean and '为' in sentence_clean:
+                                            # 检查是否以"已更改"开头（允许前面有空格）
+                                            sentence_no_space = sentence_clean.lstrip()
+                                            if sentence_no_space.startswith('已更改'):
+                                                # 进一步清理，移除可能的换行符和其他前缀
+                                                detail = sentence_clean.split('\n')[0].strip()
+                                                # 移除句尾可能存在的句号
+                                                if detail.endswith('。'):
+                                                    detail = detail[:-1]
+                                                # 规范化空格
+                                                detail = re.sub(r'为\s+', '为', detail)
+                                                logger.info(f"[提取修改信息-句子处理后 {i+1}] 句子{idx}: {detail}")
+                                                # 确保detail包含"已更改"并且是有效的修改消息
+                                                if detail and '已更改' in detail and '为' in detail:
+                                                    if detail not in success_details:
+                                                        success_details.append(detail)
+                                                        logger.info(f"[提取修改信息-句子提取成功 {i+1}] 已添加到列表: {detail}, 当前列表: {success_details}")
+                                                        found_detail = True
+                                                        break  # 找到第一个"已更改"就停止，避免重复提取
+                                
+                                # 如果还是没找到，记录警告
+                                if not found_detail:
+                                    logger.warning(f"[提取修改信息-未找到 {i+1}] 消息中未找到'已更改XXX为YYY'格式的信息。原始消息: {msg[:200]}...")
+                            else:
+                                logger.warning(f"[提取修改信息-消息为空 {i+1}] single_response.message 为空")
                             
                             if single_response.state != ConfigState.PARAMETER_CONFIG:
                                 # 如果状态改变（如确认配置），停止处理后续操作
@@ -1803,35 +2002,82 @@ async def update_report_config(request: ConfigUpdateRequest):
                     raise HTTPException(status_code=400, detail="未能处理多个参数更新")
                 
                 # 优化响应消息，显示成功和失败的操作
-                if success_count > 0:
-                    # 构建汇总消息
-                    if success_details:
-                        # 如果有详细信息，显示详细信息
-                        success_msg = f"已成功更新 {success_count} 个参数：\n" + "\n".join([f"  • {detail}" for detail in success_details])
-                    else:
-                        success_msg = f"已成功更新 {success_count} 个参数"
+                logger.info(f"[汇总消息] success_count: {success_count}, success_details数量: {len(success_details)}, details: {success_details}")
+                
+                # 构建汇总消息：将多个"已更改"消息合并为一行，用逗号分隔
+                success_msg = ""
+                if success_details and len(success_details) > 0:
+                    # 将所有修改信息合并为一行，格式："已更改监控通道为滑油压力，判断依据为<，阈值为200。"
+                    # 提取每个修改的参数名称和值
+                    changes = []
+                    for detail in success_details:
+                        # detail格式："已更改{field_name}为{value}"
+                        if '已更改' in detail and '为' in detail:
+                            # 提取"已更改"后面的内容
+                            change_part = detail.replace('已更改', '').strip()
+                            if change_part:
+                                changes.append(change_part)
                     
-                    if failed_actions:
+                    logger.info(f"[汇总消息-提取的changes] {changes}")
+                    if changes:
+                        # 合并所有修改为一条消息
+                        success_msg = "已更改" + "，".join(changes) + "。"
+                        logger.info(f"[汇总消息-最终success_msg] {success_msg}")
+                
+                # 添加失败信息
+                if failed_actions:
+                    if success_msg:
                         success_msg += f"\n\n以下参数更新失败：{', '.join(failed_actions)}"
-                    
-                    # 保留原有的响应消息（可能包含条件状态的提示），但添加汇总信息
-                    if response.message:
-                        # 移除可能已经存在的单个参数修改消息，保留状态提示
-                        original_msg = response.message
-                        # 检查是否是单个参数修改的消息格式
-                        if '已更改' in original_msg and success_count > 1:
-                            # 如果是多条参数，移除单个参数的消息，只保留状态提示（_msg_for_condition生成的部分）
-                            lines = original_msg.split('\n')
-                            status_lines = [line for line in lines if ('条件一' in line or '条件二' in line or '参数' in line or '阈值' in line or '统计方法' in line or '持续时长' in line or '判断依据' in line or '监控通道' in line) and ('已更改' not in line)]
-                            if status_lines:
-                                status_text = '\n'.join(status_lines)
-                                response.message = f"{success_msg}\n\n{status_text}"
-                            else:
-                                response.message = success_msg
-                        else:
-                            response.message = f"{success_msg}\n\n{original_msg}"
                     else:
+                        success_msg = f"以下参数更新失败：{', '.join(failed_actions)}"
+                
+                # 更新响应消息：如果有汇总消息，优先显示汇总消息
+                logger.info(f"[汇总消息-更新响应] success_msg: {success_msg}, response.message长度: {len(response.message) if response.message else 0}")
+                if success_msg:
+                    # 保留原有的响应消息中的状态提示（如果有）
+                    if response.message:
+                        original_msg = response.message
+                        logger.info(f"[汇总消息-原始消息] {original_msg[:500]}...")
+                        # 提取状态提示（_msg_for_condition生成的部分，格式："【当前为条件一，参数如下】...")
+                        # 查找"【"开头的状态信息部分
+                        status_text = ""
+                        if "【" in original_msg:
+                            # 找到"【"之后的所有内容作为状态信息
+                            start_idx = original_msg.find("【")
+                            if start_idx >= 0:
+                                status_text = original_msg[start_idx:].strip()
+                                logger.info(f"[汇总消息-提取状态信息] {status_text[:300]}...")
+                        
+                        # 如果没找到"【"，尝试按行查找包含"条件一"或"条件二"的行
+                        if not status_text:
+                            lines = original_msg.split('\n')
+                            status_lines = []
+                            in_status = False
+                            for line in lines:
+                                # 如果遇到包含"条件一"或"条件二"的行，开始收集状态信息
+                                if '条件一' in line or '条件二' in line:
+                                    in_status = True
+                                if in_status and '已更改' not in line:
+                                    status_lines.append(line)
+                            if status_lines:
+                                status_text = '\n'.join(status_lines).strip()
+                                logger.info(f"[汇总消息-按行提取状态信息] {status_text[:300]}...")
+                        
+                        if status_text:
+                            response.message = f"{success_msg}\n\n{status_text}"
+                            logger.info(f"[汇总消息-最终消息] {response.message[:500]}...")
+                        else:
+                            # 如果没有状态提示，直接使用汇总消息
+                            response.message = success_msg
+                            logger.info(f"[汇总消息-无状态信息] 直接使用汇总消息: {success_msg}")
+                    else:
+                        # 如果原始消息为空，直接使用汇总消息
                         response.message = success_msg
+                        logger.info(f"[汇总消息-原始消息为空] 直接使用汇总消息: {success_msg}")
+                elif response.message:
+                    # 如果没有汇总消息，保留原始消息
+                    logger.info(f"[汇总消息-无汇总消息] 保留原始消息")
+                    pass  # response.message 已经是原始消息，不需要修改
                 
                 return response
             elif intent.get("action") and intent.get("action").strip():

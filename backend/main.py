@@ -10,6 +10,14 @@ if __name__ == "__main__":
     import sys
     import os
     from pathlib import Path
+    import logging
+    
+    # 配置日志
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    logger = logging.getLogger(__name__)
     
     # 设置控制台编码为UTF-8 (Windows兼容)
     if sys.platform == 'win32':
@@ -24,15 +32,13 @@ if __name__ == "__main__":
     import uvicorn
     from config import settings
     
-    print("[START] Starting AI Chat API Server (Python 3.12)...")
-    print(f"[API] Server will be available at: http://{settings.API_HOST}:{settings.API_PORT}")
-    print(f"[DOCS] API Documentation: http://{settings.API_HOST}:{settings.API_PORT}/api/docs")
-    print(f"[DEBUG] Debug Mode: {settings.DEBUG}")
-    print(f"[INFO] Python 3.12 Compatible Version")
+    logger.info("Starting AI Chat API Server (Python 3.12)...")
+    logger.info(f"Server will be available at: http://{settings.API_HOST}:{settings.API_PORT}")
+    logger.info(f"API Documentation: http://{settings.API_HOST}:{settings.API_PORT}/api/docs")
+    logger.info(f"Debug Mode: {settings.DEBUG}")
     
     # 确保工作目录正确
     os.chdir(current_dir)
-    print(f"[DIR] Working directory: {os.getcwd()}")
     
     uvicorn.run(
         app,
