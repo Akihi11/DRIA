@@ -1,8 +1,8 @@
 {
   "sourceFileId": "Simulated_Data.csv",
-  "fileId": "91122993-abb5-433d-b993-3de910669953",
+  "fileId": "195780ba-c041-41f6-b5de-75f6d5381294",
   "configFileName": "config_session.json",
-  "uploadTime": "2025-11-02T18:28:24.289543",
+  "uploadTime": "2025-11-02T21:11:39.463228",
   "channels": [
     {
       "channel_name": "系统电流",
@@ -105,13 +105,69 @@
         "排气温度",
         "Ng",
         "Np"
-      ]
+      ],
+      "conditions": [
+        {
+          "type": "statistic",
+          "channel": "系统电流",
+          "statistic": "平均值",
+          "duration": 1,
+          "logic": ">",
+          "threshold": 100
+        }
+      ],
+      "conditionLogic": "Cond1_Only"
     }
   },
   "reportType": "稳态分析",
   "history": [
     {
-      "timestamp": "2025-11-02T18:28:26.449229",
+      "timestamp": "2025-11-02T21:11:41.084291",
+      "action": "set_report_type",
+      "value": "功能计算"
+    },
+    {
+      "timestamp": "2025-11-02T21:11:43.845991",
+      "action": "set_report_type",
+      "value": "功能计算"
+    },
+    {
+      "timestamp": "2025-11-02T21:11:45.345248",
+      "action": "set_report_type",
+      "value": "状态评估"
+    },
+    {
+      "timestamp": "2025-11-02T21:11:46.147225",
+      "action": "set_report_type",
+      "value": "完整报表"
+    },
+    {
+      "timestamp": "2025-11-02T21:11:47.123603",
+      "action": "set_report_type",
+      "value": "状态评估"
+    },
+    {
+      "timestamp": "2025-11-02T21:11:47.966935",
+      "action": "set_report_type",
+      "value": "功能计算"
+    },
+    {
+      "timestamp": "2025-11-02T21:11:48.333582",
+      "action": "set_report_type",
+      "value": "状态评估"
+    },
+    {
+      "timestamp": "2025-11-02T21:11:48.646052",
+      "action": "set_report_type",
+      "value": "完整报表"
+    },
+    {
+      "timestamp": "2025-11-02T21:11:49.720621",
+      "action": "set_report_type",
+      "value": "功能计算"
+    },
+    {
+      "timestamp": "2025-11-02T21:11:51.218733",
       "action": "set_report_type",
       "value": "稳态分析"
     }

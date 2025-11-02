@@ -455,23 +455,8 @@ const ChatPage: React.FC = () => {
         setLastFileChannels(base)
         // 有弹窗时不显示AI消息
       } else {
-        // 非稳态分析，显示AI消息
-        const fallbackActions = ['选择 Ng 转速通道', '选择 Np 转速通道', '选择温度通道', '选择压力通道', '确认配置', '取消配置']
-        const aiMessage: Message = {
-          id: uuidv4(),
-          type: 'ai',
-          content: configResponse.message,
-          timestamp: new Date(),
-          metadata: {
-            suggestedActions: (configResponse.suggested_actions && configResponse.suggested_actions.length > 0)
-              ? configResponse.suggested_actions
-              : fallbackActions,
-            configState: configResponse.status,
-            currentParams: configResponse.config,
-            sessionId: configResponse.session_id
-          }
-        }
-        setMessages(prev => [...prev, aiMessage])
+        // 功能计算、状态评估、完整报表暂不支持，不显示任何内容
+        // 不显示AI消息
       }
 
       // 将选择的报表类型写入最近一次上传文件的元数据JSON
