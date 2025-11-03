@@ -37,6 +37,11 @@ class ConfigState(str, Enum):
     TRIGGER_COMBO = "trigger_combo"        # 选择条件组合逻辑（仅用1/仅用2/AND）
     PARAMETER_CONFIG = "parameter_config"   # 微调参数
     SELECT_JUDGE_CHANNEL = "select_judge_channel"  # 选择判断通道（通过自然语言）
+    TIME_BASE_CONFIG = "time_base_config"  # 功能计算：时间（基准时刻）配置
+    STARTUP_TIME_CONFIG = "startup_time_config"  # 功能计算：启动时间配置
+    IGNITION_TIME_CONFIG = "ignition_time_config"  # 功能计算：点火时间配置
+    RUNDOWN_NG_CONFIG = "rundown_ng_config"  # 功能计算：Ng余转时间配置
+    RUNDOWN_NP_CONFIG = "rundown_np_config"  # 功能计算：Np余转时间配置
     CONFIRMATION = "confirmation"
     GENERATING = "generating"
     COMPLETED = "completed"
@@ -112,32 +117,83 @@ class ReportConfigManager:
     
     def start_config(self, session_id: str, report_type: str, file_id: Optional[str] = None) -> ConfigResponse:
         """开始配置流程"""
-        default_params = self.get_default_params(report_type)
-        
-        # 从上传文件中提取可用通道（仅稳态）
-        if report_type == ReportType.STEADY_STATE and file_id:
+        # 优先从JSON配置文件中读取availableChannels（如果存在）
+        available_channels = None
+        if file_id:
             try:
-                uploads_dir = Path(__file__).parent.parent.parent / "uploads"
-                file_path = None
-                for ext in [".csv", ".xlsx", ".xls"]:
-                    candidate = uploads_dir / f"{file_id}{ext}"
-                    if candidate.exists():
-                        file_path = candidate
-                        break
-                if file_path is not None:
-                    channels = self._extract_channels(str(file_path))
-                    default_params['availableChannels'] = channels
-                else:
-                    default_params['availableChannels'] = ['Ng(rpm)', 'Np(rpm)', 'Temperature(°C)', 'Pressure(kPa)']
+                backend_dir = Path(__file__).parent.parent.parent
+                config_dir = backend_dir / "config_sessions"
+                
+                # 查找匹配的配置文件
+                config_path = None
+                for json_file in config_dir.glob("*.json"):
+                    try:
+                        with open(json_file, 'r', encoding='utf-8') as f:
+                            cfg = json.load(f)
+                            if cfg.get("fileId") == file_id:
+                                config_path = json_file
+                                # 从JSON文件中读取availableChannels
+                                available_channels = cfg.get("availableChannels")
+                                if available_channels:
+                                    logger.info(f"从配置文件 {json_file.name} 读取到 availableChannels: {available_channels}")
+                                break
+                    except Exception:
+                        continue
+                
+                # 如果没找到匹配的，尝试默认的 config_session.json
+                if not available_channels:
+                    default_path = config_dir / "config_session.json"
+                    if default_path.exists():
+                        try:
+                            with open(default_path, 'r', encoding='utf-8') as f:
+                                cfg = json.load(f)
+                                if not file_id or cfg.get("fileId") == file_id:
+                                    available_channels = cfg.get("availableChannels")
+                                    if available_channels:
+                                        logger.info(f"从默认配置文件读取到 availableChannels: {available_channels}")
+                        except Exception:
+                            pass
             except Exception as e:
-                logger.warning(f"读取上传文件通道失败: {e}")
-                default_params['availableChannels'] = ['Ng(rpm)', 'Np(rpm)', 'Temperature(°C)', 'Pressure(kPa)']
-        elif report_type == ReportType.STEADY_STATE:
-            default_params.setdefault('availableChannels', ['Ng(rpm)', 'Np(rpm)', 'Temperature(°C)', 'Pressure(kPa)'])
+                logger.warning(f"从配置文件读取availableChannels失败: {e}")
+        
+        # 如果从配置文件读取失败，尝试从文件提取（仅稳态和功能计算）
+        if not available_channels:
+            if report_type in [ReportType.STEADY_STATE, ReportType.FUNCTION_CALC] and file_id:
+                try:
+                    uploads_dir = Path(__file__).parent.parent.parent / "uploads"
+                    file_path = None
+                    for ext in [".csv", ".xlsx", ".xls"]:
+                        candidate = uploads_dir / f"{file_id}{ext}"
+                        if candidate.exists():
+                            file_path = candidate
+                            break
+                    if file_path is not None:
+                        channels = self._extract_channels(str(file_path))
+                        available_channels = channels
+                        logger.info(f"从文件 {file_path.name} 提取到通道: {available_channels}")
+                except Exception as e:
+                    logger.warning(f"从上传文件提取通道失败: {e}")
+        
+        # 对于功能计算和稳态分析，如果无法获取可用通道，提示用户重新上传文件
+        if report_type in [ReportType.STEADY_STATE, ReportType.FUNCTION_CALC]:
+            if not available_channels or len(available_channels) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="无法获取可用通道列表。请确保已上传数据文件，或重新上传文件。"
+                )
+        
+        # 使用availableChannels生成默认参数
+        default_params = self.get_default_params(report_type, available_channels)
+        
+        # 确定初始状态
+        if report_type == ReportType.FUNCTION_CALC:
+            initial_state = ConfigState.TIME_BASE_CONFIG
+        else:
+            initial_state = ConfigState.DISPLAY_CHANNELS
         
         # 保存file_id到session中，用于后续查找配置文件
         self.sessions[session_id] = {
-            'state': ConfigState.DISPLAY_CHANNELS,
+            'state': initial_state,
             'report_type': report_type,
             'params': default_params,
             'step': 0,
@@ -146,13 +202,39 @@ class ReportConfigManager:
             'config_file_name': "config_session.json"
         }
         
+        # 设置建议按钮
+        if initial_state == ConfigState.DISPLAY_CHANNELS:
+            suggested_actions = self.get_channel_options(report_type, default_params)
+        elif initial_state == ConfigState.TIME_BASE_CONFIG:
+            suggested_actions = ['确认', '下一步']
+        else:
+            suggested_actions = []
+        
         return ConfigResponse(
             session_id=session_id,
-            state=ConfigState.DISPLAY_CHANNELS,
-            message=self.get_step_message(report_type, ConfigState.DISPLAY_CHANNELS),
-            suggested_actions=self.get_channel_options(report_type, default_params),
+            state=initial_state,
+            message=self.get_step_message(report_type, initial_state, default_params),
+            suggested_actions=suggested_actions,
             current_params=default_params
         )
+    
+    def _check_channels(self, available_channels: List[str]) -> Dict[str, bool]:
+        """
+        检查availableChannels中是否有Ng和Np通道（大小写不敏感）
+        
+        Returns:
+            Dict with keys 'has_ng' and 'has_np'
+        """
+        has_ng = False
+        has_np = False
+        if available_channels:
+            for channel in available_channels:
+                channel_lower = channel.lower()
+                if channel_lower == 'ng':
+                    has_ng = True
+                elif channel_lower == 'np':
+                    has_np = True
+        return {'has_ng': has_ng, 'has_np': has_np}
     
     def _extract_value_from_action(self, action: str, field_name: str) -> Any:
         """
@@ -162,7 +244,7 @@ class ReportConfigManager:
         """
         import re
         # 提取数值
-        if field_name in ['threshold', 'duration_sec']:
+        if field_name in ['threshold', 'duration_sec', 'duration']:
             # 查找数字（支持小数）
             numbers = re.findall(r'\d+(?:\.\d+)?', action)
             if numbers:
@@ -267,16 +349,114 @@ class ReportConfigManager:
             return ConfigResponse(**kwargs)
         
         # 根据当前状态和操作更新配置
+        if current_state == ConfigState.INITIAL:
+            # 处理缺少Ng或Np通道时的"继续配置"和"取消"
+            if action == '继续配置' or action == '继续':
+                # 即使缺少Ng或Np，也继续配置流程
+                if report_type == ReportType.FUNCTION_CALC:
+                    # 重新生成默认参数并进入配置流程
+                    available_channels = params.get('availableChannels', [])
+                    default_params = self.get_default_params(report_type, available_channels)
+                    session['params'] = default_params
+                    session['state'] = ConfigState.TIME_BASE_CONFIG
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.TIME_BASE_CONFIG,
+                        message=self.get_step_message(report_type, ConfigState.TIME_BASE_CONFIG, default_params),
+                        suggested_actions=['确认', '下一步'],
+                        current_params=default_params
+                    )
+            elif action == '取消' or action == '取消配置':
+                del self.sessions[session_id]
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.INITIAL,
+                    message="配置已取消，回到对话模式。",
+                    suggested_actions=[],
+                    current_params={}
+                )
+        
         if current_state == ConfigState.DISPLAY_CHANNELS:
             # 选择展示通道与完成通道选择
-            selectable = params.get('availableChannels') or ['Ng(rpm)', 'Np(rpm)', 'Temperature(°C)', 'Pressure(kPa)']
+            selectable = params.get('availableChannels')
+            
+            # 如果params中没有availableChannels或为空，尝试从配置文件重新加载
+            if not selectable or len(selectable) == 0:
+                file_id = session.get('file_id')
+                if file_id:
+                    try:
+                        backend_dir = Path(__file__).parent.parent.parent
+                        config_dir = backend_dir / "config_sessions"
+                        
+                        # 查找匹配的配置文件
+                        for json_file in config_dir.glob("*.json"):
+                            try:
+                                with open(json_file, 'r', encoding='utf-8') as f:
+                                    cfg = json.load(f)
+                                    if cfg.get("fileId") == file_id:
+                                        available_channels = cfg.get("availableChannels")
+                                        if available_channels:
+                                            # 更新params中的availableChannels
+                                            params['availableChannels'] = available_channels
+                                            selectable = available_channels
+                                            logger.info(f"从配置文件 {json_file.name} 重新加载 availableChannels: {available_channels}")
+                                            break
+                            except Exception:
+                                continue
+                        
+                        # 如果没找到匹配的，尝试默认的 config_session.json
+                        if not selectable or len(selectable) == 0:
+                            default_path = config_dir / "config_session.json"
+                            if default_path.exists():
+                                try:
+                                    with open(default_path, 'r', encoding='utf-8') as f:
+                                        cfg = json.load(f)
+                                        if not file_id or cfg.get("fileId") == file_id:
+                                            available_channels = cfg.get("availableChannels")
+                                            if available_channels:
+                                                params['availableChannels'] = available_channels
+                                                selectable = available_channels
+                                                logger.info(f"从默认配置文件重新加载 availableChannels: {available_channels}")
+                                except Exception:
+                                    pass
+                    except Exception as e:
+                        logger.warning(f"从配置文件重新加载availableChannels失败: {e}")
+            
+            # 如果仍然没有可用通道，返回错误
+            if not selectable or len(selectable) == 0:
+                return ConfigResponse(
+                    session_id=session_id,
+                    state=current_state,
+                    message="无法获取可用通道列表。请重新上传数据文件。",
+                    suggested_actions=[],
+                    current_params=params
+                )
             if action.startswith('选择 ') or action.startswith('使用 '):
-                # 兼容“使用 xxx通道”与“选择 xxx”
-                ch = action.replace('选择 ', '').replace('使用 ', '')
+                # 兼容"使用 xxx通道"与"选择 xxx"
+                ch = action.replace('选择 ', '').replace('使用 ', '').strip()
+                
+                # 尝试精确匹配
+                matched_channel = None
                 if ch in selectable:
+                    matched_channel = ch
+                else:
+                    # 尝试大小写不敏感的匹配
+                    ch_lower = ch.lower()
+                    for available_ch in selectable:
+                        if available_ch.lower() == ch_lower:
+                            matched_channel = available_ch
+                            break
+                
+                if matched_channel:
                     display = params.setdefault('displayChannels', [])
-                    if ch not in display:
-                        display.append(ch)
+                    if matched_channel not in display:
+                        display.append(matched_channel)
+                        logger.info(f"已添加通道到displayChannels: {matched_channel}, 当前列表: {display}")
+                    else:
+                        logger.info(f"通道已存在于displayChannels: {matched_channel}, 当前列表: {display}")
+                else:
+                    logger.warning(f"通道选择失败：'{ch}' 不在可选通道列表中。可选通道：{selectable}")
+                
                 # 留在本步骤，继续引导
                 return create_response(
                     session_id=session_id,
@@ -298,7 +478,7 @@ class ReportConfigManager:
                 # 设置默认条件一/二，使用默认值
                 params.setdefault('triggerLogic', {})
                 # 使用第一个通道作为默认判断通道
-                default_channel = display[0] if display else 'Ng(rpm)'
+                default_channel = display[0] if display else 'Ng'
                 params['triggerLogic'] = {
                     'combination': 'AND',
                     'condition1': {
@@ -317,7 +497,7 @@ class ReportConfigManager:
                         'statistic': '变化率',  # 固定值：变化率（不可修改）
                         'duration_sec': 1,  # 默认值：1s
                         'logic': '>',  # 默认值：>
-                        'threshold': 200  # 默认值：200（双阈值情况）
+                        'threshold': 100  # 默认值：200
                     }
                 }
                 # 新增：生成条件描述params['triggerDesc']
@@ -1129,6 +1309,794 @@ class ReportConfigManager:
                     current_params=params
                 )
         
+        # 功能计算相关状态处理
+        elif current_state == ConfigState.TIME_BASE_CONFIG:
+            # 配置"时间"（基准时刻）
+            time_base = params.setdefault('time_base', {})
+            available_channels = params.get('availableChannels', [])
+            
+            # 增强自然语言解析：支持"修改"、"改为"等格式
+            if action and ('修改' in action or '改为' in action or '改成' in action or '设置为' in action or '设置成' in action):
+                field_map = {'统计方法': 'statistic', '持续时长': 'duration', '判断依据': 'logic', '阈值': 'threshold', '监控通道': 'channel'}
+                action_for_match = action
+                
+                # 处理监控通道修改
+                if '监控通道' in action_for_match or '通道' in action_for_match or 'channel' in action_for_match.lower():
+                    new_channel = self._match_channel_name(value, action_for_match, available_channels)
+                    if new_channel:
+                        time_base['channel'] = new_channel
+                        params['time_base'] = time_base
+                        self._save_function_calc_config_to_json(session, params)
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.TIME_BASE_CONFIG,
+                            message=f"已更改监控通道为 {new_channel}。\n\n" + self._get_time_base_config_message(time_base, available_channels),
+                            suggested_actions=['确认', '下一步'],
+                            current_params=params
+                        )
+                    else:
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.TIME_BASE_CONFIG,
+                            message=f"未能识别您要选择的通道。可选通道：{', '.join(available_channels)}\n\n" + self._get_time_base_config_message(time_base, available_channels) + "\n请明确指定通道名。",
+                            suggested_actions=['确认', '下一步'],
+                            current_params=params
+                        )
+                
+                # 尝试匹配字段并更新
+                field_updated = False
+                for k, v in field_map.items():
+                    if k == '判断依据':
+                        matched = '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match
+                    else:
+                        matched = k in action_for_match
+                    
+                    if matched:
+                        extracted_value = None
+                        if value is not None:
+                            extracted_value = value
+                        else:
+                            extracted_value = self._extract_value_from_action(action_for_match, v)
+                        
+                        if extracted_value is not None:
+                            # 验证持续时长：0.1s~50s
+                            if v == 'duration':
+                                if extracted_value < 0.1 or extracted_value > 50:
+                                    return create_response(
+                                        session_id=session_id,
+                                        state=ConfigState.TIME_BASE_CONFIG,
+                                        message=f"持续时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。\n\n" + self._get_time_base_config_message(time_base, available_channels),
+                                        suggested_actions=['确认', '下一步'],
+                                        current_params=params
+                                    )
+                            time_base[v] = extracted_value
+                            field_updated = True
+                            break
+                
+                if field_updated:
+                    params['time_base'] = time_base
+                    self._save_function_calc_config_to_json(session, params)
+                    field_name = None
+                    for k in field_map.keys():
+                        if k == '判断依据':
+                            if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                field_name = k
+                                break
+                        elif k in action_for_match:
+                            field_name = k
+                            break
+                    field_name = field_name or '参数'
+                    field_key = None
+                    for k, v in field_map.items():
+                        if k == '判断依据':
+                            if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                field_key = v
+                                break
+                        elif k in action_for_match:
+                            field_key = v
+                            break
+                    actual_value = value if value is not None else (time_base.get(field_key) if field_key else None)
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.TIME_BASE_CONFIG,
+                        message=f"已更改{field_name}为{actual_value}。\n\n" + self._get_time_base_config_message(time_base, available_channels),
+                        suggested_actions=['确认', '下一步'],
+                        current_params=params
+                    )
+                else:
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.TIME_BASE_CONFIG,
+                        message=f"未能识别要修改的参数。\n\n" + self._get_time_base_config_message(time_base, available_channels) + "\n请明确说明要修改的参数。",
+                        suggested_actions=['确认', '下一步'],
+                        current_params=params
+                    )
+            elif action in ['确认', '下一步', '下一步骤', '继续']:
+                # 进入下一步：启动时间配置
+                session['state'] = ConfigState.STARTUP_TIME_CONFIG
+                startup_time = params.setdefault('startup_time', {})
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.STARTUP_TIME_CONFIG,
+                    message=self._get_startup_time_config_message(startup_time, available_channels),
+                    suggested_actions=['返回上一步', '确认', '下一步'],
+                    current_params=params
+                )
+            else:
+                # 没有匹配到action，提示用户
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.TIME_BASE_CONFIG,
+                    message=self._get_time_base_config_message(time_base, available_channels) + "\n您可以使用自然语言修改参数，例如：'把阈值改为600'、'修改统计方法为最大值'。",
+                    suggested_actions=['确认', '下一步'],
+                    current_params=params
+                )
+        
+        elif current_state == ConfigState.STARTUP_TIME_CONFIG:
+            # 配置"启动时间"
+            startup_time = params.setdefault('startup_time', {})
+            available_channels = params.get('availableChannels', [])
+            
+            if action and ('修改' in action or '改为' in action or '改成' in action or '设置为' in action or '设置成' in action):
+                field_map = {'统计方法': 'statistic', '持续时长': 'duration', '判断依据': 'logic', '阈值': 'threshold', '监控通道': 'channel'}
+                action_for_match = action
+                
+                if '监控通道' in action_for_match or '通道' in action_for_match or 'channel' in action_for_match.lower():
+                    new_channel = self._match_channel_name(value, action_for_match, available_channels)
+                    if new_channel:
+                        startup_time['channel'] = new_channel
+                        params['startup_time'] = startup_time
+                        self._save_function_calc_config_to_json(session, params)
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.STARTUP_TIME_CONFIG,
+                            message=f"已更改监控通道为 {new_channel}。\n\n" + self._get_startup_time_config_message(startup_time, available_channels),
+                            suggested_actions=['返回上一步', '确认', '下一步'],
+                            current_params=params
+                        )
+                    else:
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.STARTUP_TIME_CONFIG,
+                            message=f"未能识别您要选择的通道。可选通道：{', '.join(available_channels)}\n\n" + self._get_startup_time_config_message(startup_time, available_channels) + "\n请明确指定通道名。",
+                            suggested_actions=[],
+                            current_params=params
+                        )
+                
+                field_updated = False
+                for k, v in field_map.items():
+                    if k == '判断依据':
+                        matched = '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match
+                    else:
+                        matched = k in action_for_match
+                    
+                    if matched:
+                        extracted_value = None
+                        if value is not None:
+                            extracted_value = value
+                        else:
+                            extracted_value = self._extract_value_from_action(action_for_match, v)
+                        
+                        if extracted_value is not None:
+                            if v == 'duration':
+                                if extracted_value < 0.1 or extracted_value > 50:
+                                    return create_response(
+                                        session_id=session_id,
+                                        state=ConfigState.STARTUP_TIME_CONFIG,
+                                        message=f"持续时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。\n\n" + self._get_startup_time_config_message(startup_time, available_channels),
+                                        suggested_actions=[],
+                                        current_params=params
+                                    )
+                            startup_time[v] = extracted_value
+                            field_updated = True
+                            break
+                
+                if field_updated:
+                    params['startup_time'] = startup_time
+                    self._save_function_calc_config_to_json(session, params)
+                    field_name = None
+                    for k in field_map.keys():
+                        if k == '判断依据':
+                            if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                field_name = k
+                                break
+                        elif k in action_for_match:
+                            field_name = k
+                            break
+                    field_name = field_name or '参数'
+                    field_key = None
+                    for k, v in field_map.items():
+                        if k == '判断依据':
+                            if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                field_key = v
+                                break
+                        elif k in action_for_match:
+                            field_key = v
+                            break
+                    actual_value = value if value is not None else (startup_time.get(field_key) if field_key else None)
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.STARTUP_TIME_CONFIG,
+                        message=f"已更改{field_name}为{actual_value}。\n\n" + self._get_startup_time_config_message(startup_time, available_channels),
+                        suggested_actions=['返回上一步', '确认', '下一步'],
+                        current_params=params
+                    )
+                else:
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.STARTUP_TIME_CONFIG,
+                        message=f"未能识别要修改的参数。\n\n" + self._get_startup_time_config_message(startup_time, available_channels) + "\n请明确说明要修改的参数。",
+                        suggested_actions=[],
+                        current_params=params
+                    )
+            elif action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
+                # 返回上一步：时间（基准时刻）配置
+                session['state'] = ConfigState.TIME_BASE_CONFIG
+                time_base = params.setdefault('time_base', {})
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.TIME_BASE_CONFIG,
+                    message=self._get_time_base_config_message(time_base, available_channels),
+                    suggested_actions=['确认', '下一步'],
+                    current_params=params
+                )
+            elif action in ['确认', '下一步', '下一步骤', '继续']:
+                # 进入下一步：点火时间配置
+                session['state'] = ConfigState.IGNITION_TIME_CONFIG
+                ignition_time = params.setdefault('ignition_time', {})
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.IGNITION_TIME_CONFIG,
+                    message=self._get_ignition_time_config_message(ignition_time, available_channels),
+                    suggested_actions=['返回上一步', '确认', '下一步'],
+                    current_params=params
+                )
+            else:
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.STARTUP_TIME_CONFIG,
+                    message=self._get_startup_time_config_message(startup_time, available_channels) + "\n您可以使用自然语言修改参数，例如：'把阈值改为150'、'修改统计方法为最大值'。",
+                    suggested_actions=['返回上一步', '确认', '下一步'],
+                    current_params=params
+                )
+        
+        elif current_state == ConfigState.IGNITION_TIME_CONFIG:
+            # 配置"点火时间"
+            ignition_time = params.setdefault('ignition_time', {})
+            available_channels = params.get('availableChannels', [])
+            
+            # 检查是否尝试修改不可修改的参数（type/计算类型）
+            if action and ('计算类型' in action or 'type' in action.lower() or ('类型' in action and ('修改' in action or '改为' in action or '改成' in action))):
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.IGNITION_TIME_CONFIG,
+                    message=f"计算类型（差值计算）是不可修改的参数。\n\n" + self._get_ignition_time_config_message(ignition_time, available_channels) + "\n您可以修改其他参数，例如：监控通道、持续时长、判断依据、阈值。",
+                    suggested_actions=[],
+                    current_params=params
+                )
+            
+            if action and ('修改' in action or '改为' in action or '改成' in action or '设置为' in action or '设置成' in action):
+                field_map = {'持续时长': 'duration', '判断依据': 'logic', '阈值': 'threshold', '监控通道': 'channel'}
+                action_for_match = action
+                
+                if '监控通道' in action_for_match or '通道' in action_for_match or 'channel' in action_for_match.lower():
+                    new_channel = self._match_channel_name(value, action_for_match, available_channels)
+                    if new_channel:
+                        ignition_time['channel'] = new_channel
+                        params['ignition_time'] = ignition_time
+                        self._save_function_calc_config_to_json(session, params)
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.IGNITION_TIME_CONFIG,
+                            message=f"已更改监控通道为 {new_channel}。\n\n" + self._get_ignition_time_config_message(ignition_time, available_channels),
+                            suggested_actions=['返回上一步', '确认', '下一步'],
+                            current_params=params
+                        )
+                    else:
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.IGNITION_TIME_CONFIG,
+                            message=f"未能识别您要选择的通道。可选通道：{', '.join(available_channels)}\n\n" + self._get_ignition_time_config_message(ignition_time, available_channels) + "\n请明确指定通道名。",
+                            suggested_actions=[],
+                            current_params=params
+                        )
+                
+                field_updated = False
+                for k, v in field_map.items():
+                    if k == '判断依据':
+                        matched = '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match
+                    else:
+                        matched = k in action_for_match
+                    
+                    if matched:
+                        extracted_value = None
+                        if value is not None:
+                            extracted_value = value
+                        else:
+                            extracted_value = self._extract_value_from_action(action_for_match, v)
+                        
+                        if extracted_value is not None:
+                            if v == 'duration':
+                                if extracted_value < 0.1 or extracted_value > 50:
+                                    return create_response(
+                                        session_id=session_id,
+                                        state=ConfigState.IGNITION_TIME_CONFIG,
+                                        message=f"持续时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。\n\n" + self._get_ignition_time_config_message(ignition_time, available_channels),
+                                        suggested_actions=[],
+                                        current_params=params
+                                    )
+                            ignition_time[v] = extracted_value
+                            field_updated = True
+                            break
+                
+                if field_updated:
+                    params['ignition_time'] = ignition_time
+                    self._save_function_calc_config_to_json(session, params)
+                    field_name = None
+                    for k in field_map.keys():
+                        if k == '判断依据':
+                            if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                field_name = k
+                                break
+                        elif k in action_for_match:
+                            field_name = k
+                            break
+                    field_name = field_name or '参数'
+                    field_key = None
+                    for k, v in field_map.items():
+                        if k == '判断依据':
+                            if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                field_key = v
+                                break
+                        elif k in action_for_match:
+                            field_key = v
+                            break
+                    actual_value = value if value is not None else (ignition_time.get(field_key) if field_key else None)
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.IGNITION_TIME_CONFIG,
+                        message=f"已更改{field_name}为{actual_value}。\n\n" + self._get_ignition_time_config_message(ignition_time, available_channels),
+                        suggested_actions=['返回上一步', '确认', '下一步'],
+                        current_params=params
+                    )
+                else:
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.IGNITION_TIME_CONFIG,
+                        message=f"未能识别要修改的参数。\n\n" + self._get_ignition_time_config_message(ignition_time, available_channels) + "\n请明确说明要修改的参数。",
+                        suggested_actions=[],
+                        current_params=params
+                    )
+            elif action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
+                # 返回上一步：启动时间配置
+                session['state'] = ConfigState.STARTUP_TIME_CONFIG
+                startup_time = params.setdefault('startup_time', {})
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.STARTUP_TIME_CONFIG,
+                    message=self._get_startup_time_config_message(startup_time, available_channels),
+                    suggested_actions=['返回上一步', '确认', '下一步'],
+                    current_params=params
+                )
+            elif action in ['确认', '下一步', '下一步骤', '继续']:
+                # 检查是否有Ng和Np通道
+                channel_check = self._check_channels(available_channels)
+                has_ng = channel_check['has_ng']
+                has_np = channel_check['has_np']
+                
+                # 如果缺少Ng和Np，提示并允许完成配置
+                if not has_ng and not has_np:
+                    session['state'] = ConfigState.CONFIRMATION
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.CONFIRMATION,
+                        message="上传的文件中缺少Ng和Np通道。\n\nNg余转时间配置需要使用Ng通道，Np余转时间配置需要使用Np通道。\n\n由于缺少这些通道，无法完成功能计算的完整配置。\n\n现在可以点击上方完成配置生成报表。",
+                        suggested_actions=[],
+                        current_params=params
+                    )
+                
+                # 如果只缺少Ng，提示没有Ng，允许继续到Np配置阶段
+                if not has_ng:
+                    # 虽然缺少Ng，但允许继续到Np配置（跳过Ng配置）
+                    session['state'] = ConfigState.RUNDOWN_NP_CONFIG
+                    rundown_np = params.setdefault('rundown_np', {})
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.RUNDOWN_NP_CONFIG,
+                        message="上传的文件中缺少Ng通道。\n\nNg余转时间配置需要使用Ng通道，由于缺少此通道，将跳过Ng余转时间配置。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
+                        suggested_actions=['返回上一步', '确认', '下一步'],
+                        current_params=params
+                    )
+                
+                # 正常情况：有Ng，进入Ng余转时间配置
+                session['state'] = ConfigState.RUNDOWN_NG_CONFIG
+                rundown_ng = params.setdefault('rundown_ng', {})
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.RUNDOWN_NG_CONFIG,
+                    message=self._get_rundown_ng_config_message(rundown_ng, available_channels),
+                    suggested_actions=['返回上一步', '确认', '下一步'],
+                    current_params=params
+                )
+            else:
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.IGNITION_TIME_CONFIG,
+                    message=self._get_ignition_time_config_message(ignition_time, available_channels) + "\n您可以使用自然语言修改参数，例如：'把阈值改为500'、'设置持续时长为10秒'。",
+                    suggested_actions=['返回上一步', '确认', '下一步'],
+                    current_params=params
+                )
+        
+        elif current_state == ConfigState.RUNDOWN_NG_CONFIG:
+            # 配置"Ng余转时间"
+            rundown_ng = params.setdefault('rundown_ng', {})
+            available_channels = params.get('availableChannels', [])
+            
+            # 强制设置为Ng通道（从availableChannels中找到匹配的Ng通道，大小写不敏感）
+            ng_channel = None
+            if available_channels:
+                for channel in available_channels:
+                    if channel.lower() == 'ng':
+                        ng_channel = channel
+                        break
+            if ng_channel:
+                rundown_ng['channel'] = ng_channel
+            
+            # 检查是否尝试修改不可修改的参数（channel/监控通道）
+            if action and ('监控通道' in action or '通道' in action or 'channel' in action.lower()) and ('修改' in action or '改为' in action or '改成' in action or '设置为' in action or '设置成' in action):
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.RUNDOWN_NG_CONFIG,
+                    message=f"Ng余转时间的监控通道固定为Ng，不可修改。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels) + "\n您可以修改其他参数，例如：统计方法、持续时长、判断依据、高阈值、低阈值。",
+                    suggested_actions=[],
+                    current_params=params
+                )
+            
+            if action and ('修改' in action or '改为' in action or '改成' in action or '设置为' in action or '设置成' in action):
+                field_map = {'统计方法': 'statistic', '持续时长': 'duration', '判断依据': 'logic', '阈值': 'threshold', '高阈值': 'threshold1', '低阈值': 'threshold2'}
+                action_for_match = action
+                
+                # 优先处理高阈值和低阈值（需要在阈值之前匹配）
+                if '高阈值' in action_for_match or 'T1' in action_for_match.upper():
+                    extracted_value = None
+                    if value is not None:
+                        extracted_value = value
+                    else:
+                        extracted_value = self._extract_value_from_action(action_for_match, 'threshold1')
+                    if extracted_value is not None:
+                        rundown_ng['threshold1'] = extracted_value
+                        params['rundown_ng'] = rundown_ng
+                        self._save_function_calc_config_to_json(session, params)
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.RUNDOWN_NG_CONFIG,
+                            message=f"已更改高阈值为 {extracted_value}。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels),
+                            suggested_actions=['返回上一步', '确认', '下一步'],
+                            current_params=params
+                        )
+                
+                if '低阈值' in action_for_match or 'T2' in action_for_match.upper():
+                    extracted_value = None
+                    if value is not None:
+                        extracted_value = value
+                    else:
+                        extracted_value = self._extract_value_from_action(action_for_match, 'threshold2')
+                    if extracted_value is not None:
+                        rundown_ng['threshold2'] = extracted_value
+                        params['rundown_ng'] = rundown_ng
+                        self._save_function_calc_config_to_json(session, params)
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.RUNDOWN_NG_CONFIG,
+                            message=f"已更改低阈值为 {extracted_value}。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels),
+                            suggested_actions=['返回上一步', '确认', '下一步'],
+                            current_params=params
+                        )
+                
+                field_updated = False
+                for k, v in field_map.items():
+                    if k == '判断依据':
+                        matched = '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match
+                    elif k in ['高阈值', '低阈值']:
+                        # 高阈值和低阈值已经在上面处理了，跳过
+                        continue
+                    else:
+                        matched = k in action_for_match
+                    
+                    if matched:
+                        extracted_value = None
+                        if value is not None:
+                            extracted_value = value
+                        else:
+                            extracted_value = self._extract_value_from_action(action_for_match, v)
+                        
+                        if extracted_value is not None:
+                            if v == 'duration':
+                                if extracted_value < 0.1 or extracted_value > 50:
+                                    return create_response(
+                                        session_id=session_id,
+                                        state=ConfigState.RUNDOWN_NG_CONFIG,
+                                        message=f"持续时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels),
+                                        suggested_actions=[],
+                                        current_params=params
+                                    )
+                            # 如果用户只说"阈值"而没有明确说高阈值或低阈值，默认处理为高阈值（threshold1）
+                            if v == 'threshold' and '阈值' in action_for_match and '高' not in action_for_match and '低' not in action_for_match:
+                                rundown_ng['threshold1'] = extracted_value
+                            else:
+                                rundown_ng[v] = extracted_value
+                            field_updated = True
+                            break
+                
+                if field_updated:
+                    params['rundown_ng'] = rundown_ng
+                    self._save_function_calc_config_to_json(session, params)
+                    field_name = None
+                    for k in field_map.keys():
+                        if k == '判断依据':
+                            if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                field_name = k
+                                break
+                        elif k in action_for_match:
+                            field_name = k
+                            break
+                    field_name = field_name or '参数'
+                    field_key = None
+                    for k, v in field_map.items():
+                        if k == '判断依据':
+                            if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                field_key = v
+                                break
+                        elif k in action_for_match:
+                            field_key = v
+                            break
+                    actual_value = value if value is not None else (rundown_ng.get(field_key) if field_key else None)
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.RUNDOWN_NG_CONFIG,
+                        message=f"已更改{field_name}为{actual_value}。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels),
+                        suggested_actions=['返回上一步', '确认', '下一步'],
+                        current_params=params
+                    )
+                else:
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.RUNDOWN_NG_CONFIG,
+                        message=f"未能识别要修改的参数。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels) + "\n请明确说明要修改的参数。",
+                        suggested_actions=[],
+                        current_params=params
+                    )
+            elif action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
+                # 返回上一步：点火时间配置
+                session['state'] = ConfigState.IGNITION_TIME_CONFIG
+                ignition_time = params.setdefault('ignition_time', {})
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.IGNITION_TIME_CONFIG,
+                    message=self._get_ignition_time_config_message(ignition_time, available_channels),
+                    suggested_actions=['返回上一步', '确认', '下一步'],
+                    current_params=params
+                )
+            elif action in ['确认', '下一步', '下一步骤', '继续']:
+                # 检查是否有Np通道
+                channel_check = self._check_channels(available_channels)
+                has_np = channel_check['has_np']
+                
+                # 如果缺少Np，提示并允许完成配置
+                if not has_np:
+                    session['state'] = ConfigState.CONFIRMATION
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.CONFIRMATION,
+                        message="上传的文件中缺少Np通道。\n\nNp余转时间配置需要使用Np通道，由于缺少此通道，无法完成Np余转时间配置。\n\n现在可以点击上方完成配置生成报表。",
+                        suggested_actions=[],
+                        current_params=params
+                    )
+                
+                # 正常情况：有Np，进入Np余转时间配置
+                session['state'] = ConfigState.RUNDOWN_NP_CONFIG
+                rundown_np = params.setdefault('rundown_np', {})
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.RUNDOWN_NP_CONFIG,
+                    message=self._get_rundown_np_config_message(rundown_np, available_channels),
+                    suggested_actions=['返回上一步', '确认', '下一步'],
+                    current_params=params
+                )
+            else:
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.RUNDOWN_NG_CONFIG,
+                    message=self._get_rundown_ng_config_message(rundown_ng, available_channels) + "\n您可以使用自然语言修改参数，例如：'把阈值改为100'、'修改统计方法为最小值'。",
+                    suggested_actions=['返回上一步', '确认', '下一步'],
+                    current_params=params
+                )
+        
+        elif current_state == ConfigState.RUNDOWN_NP_CONFIG:
+            # 配置"Np余转时间"
+            rundown_np = params.setdefault('rundown_np', {})
+            available_channels = params.get('availableChannels', [])
+            
+            # 强制设置为Np通道（从availableChannels中找到匹配的Np通道，大小写不敏感）
+            np_channel = None
+            if available_channels:
+                for channel in available_channels:
+                    if channel.lower() == 'np':
+                        np_channel = channel
+                        break
+            if np_channel:
+                rundown_np['channel'] = np_channel
+            
+            # 检查是否尝试修改不可修改的参数（channel/监控通道）
+            if action and ('监控通道' in action or '通道' in action or 'channel' in action.lower()) and ('修改' in action or '改为' in action or '改成' in action or '设置为' in action or '设置成' in action):
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.RUNDOWN_NP_CONFIG,
+                    message=f"Np余转时间的监控通道固定为Np，不可修改。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels) + "\n您可以修改其他参数，例如：统计方法、持续时长、判断依据、高阈值、低阈值。",
+                    suggested_actions=[],
+                    current_params=params
+                )
+            
+            if action and ('修改' in action or '改为' in action or '改成' in action or '设置为' in action or '设置成' in action):
+                field_map = {'统计方法': 'statistic', '持续时长': 'duration', '判断依据': 'logic', '阈值': 'threshold', '高阈值': 'threshold1', '低阈值': 'threshold2'}
+                action_for_match = action
+                
+                # 优先处理高阈值和低阈值（需要在阈值之前匹配）
+                if '高阈值' in action_for_match or 'T1' in action_for_match.upper():
+                    extracted_value = None
+                    if value is not None:
+                        extracted_value = value
+                    else:
+                        extracted_value = self._extract_value_from_action(action_for_match, 'threshold1')
+                    if extracted_value is not None:
+                        rundown_np['threshold1'] = extracted_value
+                        params['rundown_np'] = rundown_np
+                        self._save_function_calc_config_to_json(session, params)
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.RUNDOWN_NP_CONFIG,
+                            message=f"已更改高阈值为 {extracted_value}。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
+                            suggested_actions=['返回上一步', '确认', '下一步'],
+                            current_params=params
+                        )
+                
+                if '低阈值' in action_for_match or 'T2' in action_for_match.upper():
+                    extracted_value = None
+                    if value is not None:
+                        extracted_value = value
+                    else:
+                        extracted_value = self._extract_value_from_action(action_for_match, 'threshold2')
+                    if extracted_value is not None:
+                        rundown_np['threshold2'] = extracted_value
+                        params['rundown_np'] = rundown_np
+                        self._save_function_calc_config_to_json(session, params)
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.RUNDOWN_NP_CONFIG,
+                            message=f"已更改低阈值为 {extracted_value}。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
+                            suggested_actions=['返回上一步', '确认', '下一步'],
+                            current_params=params
+                        )
+                
+                field_updated = False
+                for k, v in field_map.items():
+                    if k == '判断依据':
+                        matched = '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match
+                    elif k in ['高阈值', '低阈值']:
+                        # 高阈值和低阈值已经在上面处理了，跳过
+                        continue
+                    else:
+                        matched = k in action_for_match
+                    
+                    if matched:
+                        extracted_value = None
+                        if value is not None:
+                            extracted_value = value
+                        else:
+                            extracted_value = self._extract_value_from_action(action_for_match, v)
+                        
+                        if extracted_value is not None:
+                            if v == 'duration':
+                                if extracted_value < 0.1 or extracted_value > 50:
+                                    return create_response(
+                                        session_id=session_id,
+                                        state=ConfigState.RUNDOWN_NP_CONFIG,
+                                        message=f"持续时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
+                                        suggested_actions=[],
+                                        current_params=params
+                                    )
+                            # 如果用户只说"阈值"而没有明确说高阈值或低阈值，默认处理为高阈值（threshold1）
+                            if v == 'threshold' and '阈值' in action_for_match and '高' not in action_for_match and '低' not in action_for_match:
+                                rundown_np['threshold1'] = extracted_value
+                            else:
+                                rundown_np[v] = extracted_value
+                            field_updated = True
+                            break
+                
+                if field_updated:
+                    params['rundown_np'] = rundown_np
+                    self._save_function_calc_config_to_json(session, params)
+                    field_name = None
+                    for k in field_map.keys():
+                        if k == '判断依据':
+                            if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                field_name = k
+                                break
+                        elif k in action_for_match:
+                            field_name = k
+                            break
+                    field_name = field_name or '参数'
+                    field_key = None
+                    for k, v in field_map.items():
+                        if k == '判断依据':
+                            if '判断依据' in action_for_match or '逻辑' in action_for_match or '判据' in action_for_match:
+                                field_key = v
+                                break
+                        elif k in action_for_match:
+                            field_key = v
+                            break
+                    actual_value = value if value is not None else (rundown_np.get(field_key) if field_key else None)
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.RUNDOWN_NP_CONFIG,
+                        message=f"已更改{field_name}为{actual_value}。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
+                        suggested_actions=['返回上一步', '确认', '下一步'],
+                        current_params=params
+                    )
+                else:
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.RUNDOWN_NP_CONFIG,
+                        message=f"未能识别要修改的参数。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels) + "\n请明确说明要修改的参数。",
+                        suggested_actions=[],
+                        current_params=params
+                    )
+            elif action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
+                # 返回上一步：判断是否有Ng通道，如果有则返回到RUNDOWN_NG_CONFIG，否则返回到IGNITION_TIME_CONFIG
+                channel_check = self._check_channels(available_channels)
+                has_ng = channel_check['has_ng']
+                
+                if has_ng:
+                    # 有Ng通道，返回到Ng余转时间配置
+                    session['state'] = ConfigState.RUNDOWN_NG_CONFIG
+                    rundown_ng = params.setdefault('rundown_ng', {})
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.RUNDOWN_NG_CONFIG,
+                        message=self._get_rundown_ng_config_message(rundown_ng, available_channels),
+                        suggested_actions=['返回上一步', '确认', '下一步'],
+                        current_params=params
+                    )
+                else:
+                    # 没有Ng通道，返回到点火时间配置
+                    session['state'] = ConfigState.IGNITION_TIME_CONFIG
+                    ignition_time = params.setdefault('ignition_time', {})
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.IGNITION_TIME_CONFIG,
+                        message=self._get_ignition_time_config_message(ignition_time, available_channels),
+                        suggested_actions=['返回上一步', '确认', '下一步'],
+                        current_params=params
+                    )
+            elif action in ['确认', '下一步', '下一步骤', '继续', '确认配置', '确认生成']:
+                # 进入确认状态
+                session['state'] = ConfigState.CONFIRMATION
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.CONFIRMATION,
+                    message="功能计算配置已完成。\n\n" + self.get_confirmation_message(report_type, params),
+                    suggested_actions=['确认生成', '修改配置', '取消配置'],
+                    current_params=params
+                )
+            else:
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.RUNDOWN_NP_CONFIG,
+                    message=self._get_rundown_np_config_message(rundown_np, available_channels) + "\n您可以使用自然语言修改参数，例如：'把阈值改为100'、'修改统计方法为最小值'。",
+                    suggested_actions=['返回上一步', '确认', '下一步'],
+                    current_params=params
+                )
+        
         elif current_state == ConfigState.CONFIRMATION:
             if action == '确认生成':
                 session['state'] = ConfigState.GENERATING
@@ -1170,13 +2138,19 @@ class ReportConfigManager:
                         except Exception as read_err:
                             logger.warning(f"读取已有配置文件失败: {read_err}")
                     
-                    # 构建稳态配置
-                    steady_cfg = self._build_steady_state_config(params)
+                    # 根据报表类型构建配置
+                    if report_type == ReportType.STEADY_STATE:
+                        report_cfg = self._build_steady_state_config(params)
+                    elif report_type == ReportType.FUNCTION_CALC:
+                        report_cfg = self._build_function_calc_config(params)
+                    else:
+                        # 其他类型暂不支持，使用空配置
+                        report_cfg = {"reportConfig": {}}
                     
                     # 合并配置：保留已有信息（sourceFileId, fileId, uploadTime, channels），更新reportConfig
                     final_config = {
                         **existing_config,  # 保留已有字段
-                        "reportConfig": steady_cfg.get("reportConfig", {})
+                        "reportConfig": report_cfg.get("reportConfig", {})
                     }
                     # 如果没有sourceFileId等字段，则添加
                     if "sourceFileId" not in final_config:
@@ -1193,7 +2167,7 @@ class ReportConfigManager:
                     
                     logger.info(f"已保存配置到: {out_path}")
                 except Exception as e:
-                    logger.error(f"保存稳态配置失败: {e}", exc_info=True)
+                    logger.error(f"保存配置失败: {e}", exc_info=True)
                     import traceback
                     traceback.print_exc()
                 return ConfigResponse(
@@ -1232,17 +2206,80 @@ class ReportConfigManager:
             current_params=params
         )
     
-    def get_default_params(self, report_type: str) -> Dict[str, Any]:
-        """获取默认参数"""
+    def get_default_params(self, report_type: str, available_channels: Optional[List[str]] = None) -> Dict[str, Any]:
+        """获取默认参数
+        
+        Args:
+            report_type: 报表类型
+            available_channels: 可用通道列表，如果提供则从中选择默认通道
+        """
         if report_type == ReportType.STEADY_STATE:
             return {
                 'displayChannels': [],
-                'time_window': 10
+                'time_window': 10,
+                'availableChannels': available_channels if available_channels else []
             }
         elif report_type == ReportType.FUNCTION_CALC:
+            # 如果没有提供available_channels，抛出错误提示用户重新上传文件
+            if not available_channels or len(available_channels) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="无法获取可用通道列表。请确保已上传数据文件，或重新上传文件。"
+                )
+            
+            # 从available_channels中选择默认通道
+            # 优先查找常见的通道名（不区分大小写）
+            def find_channel(priorities: List[str]) -> str:
+                """从available_channels中查找优先级最高的通道"""
+                for priority in priorities:
+                    for ch in available_channels:
+                        if ch.lower() == priority.lower():
+                            return ch
+                # 如果都找不到，返回第一个通道（此时available_channels一定不为空，因为前面已检查）
+                return available_channels[0]
+            
+            # 各步骤的默认通道选择策略
+            default_ng = find_channel(['Ng', 'ng', 'NG'])
+            default_np = find_channel(['Np', 'np', 'NP'])
+            default_pressure = find_channel(['Pressure(kPa)', 'Pressure', 'pressure', '压力'])
+            
             return {
-                'metrics': ['time_baseline', 'startup_time', 'acceleration_time'],
-                'channels': ['Ng(rpm)', 'Temperature(°C)', 'Pressure(kPa)']
+                'availableChannels': available_channels,
+                'time_base': {
+                    'channel': default_ng,
+                    'statistic': '平均值',
+                    'duration': 1,
+                    'logic': '>',
+                    'threshold': 100
+                },
+                'startup_time': {
+                    'channel': default_ng,
+                    'statistic': '平均值',
+                    'duration': 1,
+                    'logic': '>',
+                    'threshold': 100
+                },
+                'ignition_time': {
+                    'channel': default_pressure,
+                    'type': 'difference',  # 不可修改
+                    'duration': 1,
+                    'logic': '>',
+                    'threshold': 100
+                },
+                'rundown_ng': {
+                    'channel': default_ng,
+                    'statistic': '平均值',
+                    'duration': 1,
+                    'threshold1': 100,
+                    'threshold2': 200
+                },
+                'rundown_np': {
+                    'channel': default_np,
+                    'statistic': '平均值',
+                    'duration': 1,
+                    'threshold1': 100,
+                    'threshold2': 200
+                }
             }
         elif report_type == ReportType.STATUS_EVAL:
             return {
@@ -1256,7 +2293,7 @@ class ReportConfigManager:
         else:
             return {}
     
-    def get_step_message(self, report_type: str, state: ConfigState) -> str:
+    def get_step_message(self, report_type: str, state: ConfigState, params: Optional[Dict[str, Any]] = None) -> str:
         """获取步骤消息"""
         if report_type == ReportType.STEADY_STATE:
             if state == ConfigState.DISPLAY_CHANNELS:
@@ -1268,10 +2305,109 @@ class ReportConfigManager:
             elif state == ConfigState.SELECT_JUDGE_CHANNEL:
                 return "稳态分析配置 - 第4步：选择判断通道\n\n请通过自然语言选择判断通道。"
         elif report_type == ReportType.FUNCTION_CALC:
-            if state == ConfigState.CHANNEL_SELECTION:
-                return "功能计算配置 - 第1步：选择计算指标\n\n请选择需要计算的指标："
-            elif state == ConfigState.PARAMETER_CONFIG:
-                return "功能计算配置 - 第2步：配置参数\n\n请选择您要修改的参数："
+            params = params or {}
+            available_channels = params.get('availableChannels', [])
+            channels_text = ""
+            if available_channels:
+                channels_text = f"\n【可用通道】：{', '.join(available_channels)}\n"
+            if state == ConfigState.TIME_BASE_CONFIG:
+                time_base = params.get('time_base', {})
+                return f"""功能计算配置 - 第1步：配置"时间"（基准时刻）
+{channels_text}
+【当前默认参数】：
+- 监控通道: {time_base.get('channel', 'Ng')}
+- 统计方法: {time_base.get('statistic', '平均值')}
+- 持续时长: {time_base.get('duration', 1)}秒
+- 判断依据: {time_base.get('logic', '>')}
+- 阈值: {time_base.get('threshold', 100)}
+
+说明："时间"是一个基准时刻点，用于后续计算的参考。当指定通道的统计值在持续时长内第一次满足判断条件时，记录该时刻。
+
+您可以通过自然语言修改参数，例如：
+- "监控通道改为 Np"
+- "把阈值改为600"
+- "统计方法改为最大值"
+- "持续时长改为2秒"
+
+修改完成后输入"确认"或"下一步"继续。"""
+            elif state == ConfigState.STARTUP_TIME_CONFIG:
+                startup_time = params.get('startup_time', {})
+                return f"""功能计算配置 - 第2步：配置"启动时间"
+{channels_text}
+【当前默认参数】：
+- 监控通道: {startup_time.get('channel', 'Ng')}
+- 统计方法: {startup_time.get('statistic', '平均值')}
+- 持续时长: {startup_time.get('duration', 1)}秒
+- 判断依据: {startup_time.get('logic', '>')}
+- 阈值: {startup_time.get('threshold', 100)}
+
+说明："启动时间"是计算从启动点到基准点的相对时长。系统会找到满足条件的启动时刻点，然后计算它与"时间"（基准时刻）的差值。
+
+您可以通过自然语言修改参数，例如：
+- "监控通道改为 Np"
+- "把阈值改为150"
+- "确认"或"下一步"继续"""
+            elif state == ConfigState.IGNITION_TIME_CONFIG:
+                ignition_time = params.get('ignition_time', {})
+                return f"""功能计算配置 - 第3步：配置"点火时间"
+{channels_text}
+【当前默认参数】：
+- 监控通道: {ignition_time.get('channel', 'Pressure(kPa)')}
+- 计算类型: {ignition_time.get('type', 'difference')}（差值计算）（不可修改）
+- 持续时长: {ignition_time.get('duration', 1)}秒
+- 判断依据: {ignition_time.get('logic', '>')}
+- 阈值: {ignition_time.get('threshold', 100)}
+
+说明："点火时间"是计算点火时刻相对于基准点的相对时长。系统会计算当前值与N秒前值的差值，当差值第一次满足条件时记录该时刻。
+
+您可以通过自然语言修改参数，例如：
+- "监控通道改为 排气温度"
+- "把阈值改为600"
+- "持续时长改为15秒"
+
+注意：计算类型（差值计算）不可修改。
+
+修改完成后输入"确认"或"下一步"继续。"""
+            elif state == ConfigState.RUNDOWN_NG_CONFIG:
+                rundown_ng = params.get('rundown_ng', {})
+                return f"""功能计算配置 - 第4步：配置"Ng余转时间"
+{channels_text}
+【当前默认参数】：
+- 监控通道: {rundown_ng.get('channel', 'Ng')}（不可修改）
+- 统计方法: {rundown_ng.get('statistic', '平均值')}
+- 持续时长: {rundown_ng.get('duration', 1)}秒
+- 高阈值: {rundown_ng.get('threshold1', 100)}
+- 低阈值: {rundown_ng.get('threshold2', 200)}
+
+说明："Ng余转时间"是在降速阶段计算的，系统会找到第一次低于高阈值（T1）和第一次低于低阈值（T2）的时刻，然后计算T2-T1的时长。
+
+您可以通过自然语言修改参数，例如：
+- "高阈值改为1500"
+- "低阈值改为100"
+
+注意：监控通道固定为Ng，不可修改。
+
+"确认"或"下一步"继续"""
+            elif state == ConfigState.RUNDOWN_NP_CONFIG:
+                rundown_np = params.get('rundown_np', {})
+                return f"""功能计算配置 - 第5步：配置"Np余转时间"
+{channels_text}
+【当前默认参数】：
+- 监控通道: {rundown_np.get('channel', 'Np')}（不可修改）
+- 统计方法: {rundown_np.get('statistic', '平均值')}
+- 持续时长: {rundown_np.get('duration', 1)}秒
+- 高阈值: {rundown_np.get('threshold1', 6000)}
+- 低阈值: {rundown_np.get('threshold2', 500)}
+
+说明："Np余转时间"是在降速阶段计算的，系统会找到第一次低于高阈值（T1）和第一次低于低阈值（T2）的时刻，然后计算T2-T1的时长。
+
+您可以通过自然语言修改参数，例如：
+- "高阈值改为5000"
+- "低阈值改为400"
+
+注意：监控通道固定为Np，不可修改。
+
+"确认"或"下一步"继续"""
         elif report_type == ReportType.STATUS_EVAL:
             if state == ConfigState.CHANNEL_SELECTION:
                 return "状态评估配置 - 第1步：选择评估项目\n\n请选择需要评估的项目："
@@ -1283,7 +2419,10 @@ class ReportConfigManager:
     def get_channel_options(self, report_type: str, params: Optional[Dict[str, Any]] = None) -> List[str]:
         """获取通道选择选项"""
         if report_type == ReportType.STEADY_STATE:
-            channels = (params or {}).get('availableChannels') or ['Ng(rpm)', 'Np(rpm)', 'Temperature(°C)', 'Pressure(kPa)']
+            channels = (params or {}).get('availableChannels')
+            if not channels or len(channels) == 0:
+                # 如果没有可用通道，不返回任何建议操作
+                return []
             actions = [f"选择 {c}" for c in channels]
             actions.extend(['完成通道选择', '取消配置'])
             return actions
@@ -1331,6 +2470,41 @@ class ReportConfigManager:
 条件一：{cond1_desc}
 条件二：{cond2_desc}
 时间窗口：{params.get('time_window', 10)}秒
+
+请确认是否使用以上配置生成报表？"""
+        elif report_type == ReportType.FUNCTION_CALC:
+            time_base = params.get('time_base', {})
+            startup_time = params.get('startup_time', {})
+            ignition_time = params.get('ignition_time', {})
+            rundown_ng = params.get('rundown_ng', {})
+            rundown_np = params.get('rundown_np', {})
+            
+            def format_config_item(item: Dict[str, Any], name: str) -> str:
+                if not item:
+                    return f"{name}：未设置"
+                parts = []
+                if 'channel' in item:
+                    parts.append(f"通道: {item['channel']}")
+                if 'statistic' in item:
+                    parts.append(f"统计方法: {item['statistic']}")
+                if 'duration' in item:
+                    parts.append(f"持续时长: {item['duration']}秒")
+                if 'logic' in item:
+                    parts.append(f"判断依据: {item['logic']}")
+                if 'threshold' in item:
+                    parts.append(f"阈值: {item['threshold']}")
+                if 'type' in item:
+                    parts.append(f"计算类型: {item['type']}")
+                return f"{name}：{', '.join(parts)}" if parts else f"{name}：未设置"
+            
+            return f"""配置确认：
+
+展示通道：{params.get('displayChannels', [])}
+{format_config_item(time_base, '时间（基准时刻）')}
+{format_config_item(startup_time, '启动时间')}
+{format_config_item(ignition_time, '点火时间')}
+{format_config_item(rundown_ng, 'Ng余转时间')}
+{format_config_item(rundown_np, 'Np余转时间')}
 
 请确认是否使用以上配置生成报表？"""
         else:
@@ -1546,6 +2720,238 @@ class ReportConfigManager:
             logger.error(f"保存conditions到JSON文件失败: {e}", exc_info=True)
             import traceback
             traceback.print_exc()
+    
+    def _get_time_base_config_message(self, time_base: Dict[str, Any], available_channels: Optional[List[str]] = None) -> str:
+        """生成时间（基准时刻）配置消息"""
+        channels_text = ""
+        if available_channels:
+            channels_text = f"\n【可用通道】：{', '.join(available_channels)}\n"
+        return f"""功能计算配置 - 第1步：配置"时间"（基准时刻）
+{channels_text}
+【当前参数】：
+- 监控通道: {time_base.get('channel', 'Ng')}
+- 统计方法: {time_base.get('statistic', '平均值')}
+- 持续时长: {time_base.get('duration', 1)}秒
+- 判断依据: {time_base.get('logic', '>')}
+- 阈值: {time_base.get('threshold', 100)}
+
+说明："时间"是一个基准时刻点，用于后续计算的参考。当指定通道的统计值在持续时长内第一次满足判断条件时，记录该时刻。
+
+您可以通过自然语言修改参数，例如：
+- "监控通道改为 Np"
+- "把阈值改为600"
+- "统计方法改为最大值"
+- "持续时长改为2秒"
+
+修改完成后输入"确认"或"下一步"继续。"""
+    
+    def _get_startup_time_config_message(self, startup_time: Dict[str, Any], available_channels: Optional[List[str]] = None) -> str:
+        """生成启动时间配置消息"""
+        channels_text = ""
+        if available_channels:
+            channels_text = f"\n【可用通道】：{', '.join(available_channels)}\n"
+        return f"""功能计算配置 - 第2步：配置"启动时间"
+{channels_text}
+【当前参数】：
+- 监控通道: {startup_time.get('channel', 'Ng')}
+- 统计方法: {startup_time.get('statistic', '平均值')}
+- 持续时长: {startup_time.get('duration', 1)}秒
+- 判断依据: {startup_time.get('logic', '>')}
+- 阈值: {startup_time.get('threshold', 100)}
+
+说明："启动时间"是计算从启动点到基准点的相对时长。系统会找到满足条件的启动时刻点，然后计算它与"时间"（基准时刻）的差值。
+
+您可以通过自然语言修改参数，例如：
+- "监控通道改为 Np"
+- "把阈值改为150"
+- "统计方法改为最大值"
+
+修改完成后输入"确认"或"下一步"继续。"""
+    
+    def _get_ignition_time_config_message(self, ignition_time: Dict[str, Any], available_channels: Optional[List[str]] = None) -> str:
+        """生成点火时间配置消息"""
+        channels_text = ""
+        if available_channels:
+            channels_text = f"\n【可用通道】：{', '.join(available_channels)}\n"
+        return f"""功能计算配置 - 第3步：配置"点火时间"
+{channels_text}
+【当前参数】：
+- 监控通道: {ignition_time.get('channel', 'Pressure(kPa)')}
+- 计算类型: {ignition_time.get('type', 'difference')}（差值计算）（不可修改）
+- 持续时长: {ignition_time.get('duration', 1)}秒
+- 判断依据: {ignition_time.get('logic', '>')}
+- 阈值: {ignition_time.get('threshold', 100)}
+
+说明："点火时间"是计算从点火点到基准点的相对时长。系统会找到满足条件的点火时刻点，然后计算它与"时间"（基准时刻）的差值。
+
+您可以通过自然语言修改参数，例如：
+- "监控通道改为 Np"
+- "把阈值改为600"
+- "持续时长改为5秒"
+
+注意：计算类型（差值计算）不可修改。
+
+修改完成后输入"确认"或"下一步"继续。"""
+    
+    def _get_rundown_ng_config_message(self, rundown_ng: Dict[str, Any], available_channels: Optional[List[str]] = None) -> str:
+        """生成Ng余转时间配置消息"""
+        channels_text = ""
+        if available_channels:
+            channels_text = f"\n【可用通道】：{', '.join(available_channels)}\n"
+        threshold_text = ""
+        if 'threshold1' in rundown_ng or 'threshold2' in rundown_ng:
+            threshold_text = f"- 高阈值: {rundown_ng.get('threshold1', 100)}\n- 低阈值: {rundown_ng.get('threshold2', 200)}\n"
+        else:
+            threshold_text = f"- 阈值: {rundown_ng.get('threshold', 100)}\n"
+        return f"""功能计算配置 - 第4步：配置"Ng余转时间"
+{channels_text}
+【当前参数】：
+- 监控通道: {rundown_ng.get('channel', 'Ng')}（不可修改）
+- 统计方法: {rundown_ng.get('statistic', '平均值')}
+- 持续时长: {rundown_ng.get('duration', 1)}秒
+- 判断依据: {rundown_ng.get('logic', '>')}
+{threshold_text}
+说明："Ng余转时间"是在降速阶段计算的，系统会找到第一次低于高阈值（T1）和第一次低于低阈值（T2）的时刻，然后计算T2-T1的时长。
+
+您可以通过自然语言修改参数，例如：
+- "高阈值改为1500"
+- "低阈值改为100"
+- "统计方法改为最小值"
+
+注意：监控通道固定为Ng，不可修改。
+
+修改完成后输入"确认"或"下一步"继续。"""
+    
+    def _get_rundown_np_config_message(self, rundown_np: Dict[str, Any], available_channels: Optional[List[str]] = None) -> str:
+        """生成Np余转时间配置消息"""
+        channels_text = ""
+        if available_channels:
+            channels_text = f"\n【可用通道】：{', '.join(available_channels)}\n"
+        threshold_text = ""
+        if 'threshold1' in rundown_np or 'threshold2' in rundown_np:
+            threshold_text = f"- 高阈值: {rundown_np.get('threshold1', 100)}\n- 低阈值: {rundown_np.get('threshold2', 200)}\n"
+        else:
+            threshold_text = f"- 阈值: {rundown_np.get('threshold', 100)}\n"
+        return f"""功能计算配置 - 第5步：配置"Np余转时间"
+{channels_text}
+【当前参数】：
+- 监控通道: {rundown_np.get('channel', 'Np')}（不可修改）
+- 统计方法: {rundown_np.get('statistic', '平均值')}
+- 持续时长: {rundown_np.get('duration', 1)}秒
+- 判断依据: {rundown_np.get('logic', '>')}
+{threshold_text}
+说明："Np余转时间"是在降速阶段计算的，系统会找到第一次低于高阈值（T1）和第一次低于低阈值（T2）的时刻，然后计算T2-T1的时长。
+
+您可以通过自然语言修改参数，例如：
+- "高阈值改为5000"
+- "低阈值改为400"
+- "统计方法改为最小值"
+
+注意：监控通道固定为Np，不可修改。
+
+修改完成后输入"确认"继续。"""
+    
+    def _save_function_calc_config_to_json(self, session: Dict[str, Any], params: Dict[str, Any]) -> None:
+        """保存功能计算配置到JSON文件"""
+        try:
+            config_path, existing_config = self._get_config_file_path(session)
+            
+            # 逻辑值转换映射（中文转符号）
+            logic_map = {
+                '大于': '>',
+                '小于': '<',
+                '大于等于': '>=',
+                '小于等于': '<=',
+                '等于': '==',
+                '>': '>',
+                '<': '<',
+                '>=': '>=',
+                '<=': '<=',
+                '==': '=='
+            }
+            
+            # 构建功能计算配置
+            if 'reportConfig' not in existing_config:
+                existing_config['reportConfig'] = {}
+            if 'functionCalc' not in existing_config['reportConfig']:
+                existing_config['reportConfig']['functionCalc'] = {}
+            
+            function_calc = existing_config['reportConfig']['functionCalc']
+            
+            # 保存时间（基准时刻）配置
+            time_base = params.get('time_base', {})
+            if time_base:
+                function_calc['time'] = {
+                    "channel": time_base.get('channel', 'Ng'),
+                    "statistic": time_base.get('statistic', '平均值'),
+                    "duration": time_base.get('duration', 1),
+                    "logic": logic_map.get(time_base.get('logic', '>'), '>'),
+                    "threshold": time_base.get('threshold', 500)
+                }
+            
+            # 保存启动时间配置
+            startup_time = params.get('startup_time', {})
+            if startup_time:
+                function_calc['startupTime'] = {
+                    "channel": startup_time.get('channel', 'Ng'),
+                    "statistic": startup_time.get('statistic', '平均值'),
+                    "duration": startup_time.get('duration', 1),
+                    "logic": logic_map.get(startup_time.get('logic', '>'), '>'),
+                    "threshold": startup_time.get('threshold', 100)
+                }
+            
+            # 保存点火时间配置
+            ignition_time = params.get('ignition_time', {})
+            if ignition_time:
+                function_calc['ignitionTime'] = {
+                    "channel": ignition_time.get('channel', 'Pressure(kPa)'),
+                    "type": ignition_time.get('type', 'difference'),
+                    "duration": ignition_time.get('duration', 10),
+                    "logic": logic_map.get(ignition_time.get('logic', '>'), '>'),
+                    "threshold": ignition_time.get('threshold', 500)
+                }
+            
+            # 保存Ng余转时间配置
+            rundown_ng = params.get('rundown_ng', {})
+            if rundown_ng:
+                function_calc['rundownNg'] = {
+                    "channel": rundown_ng.get('channel', 'Ng'),
+                    "statistic": rundown_ng.get('statistic', '平均值'),
+                    "duration": rundown_ng.get('duration', 1),
+                    "logic": logic_map.get(rundown_ng.get('logic', '<'), '<'),
+                    "threshold": rundown_ng.get('threshold', 100)
+                }
+            
+            # 保存Np余转时间配置
+            rundown_np = params.get('rundown_np', {})
+            if rundown_np:
+                function_calc['rundownNp'] = {
+                    "channel": rundown_np.get('channel', 'Np'),
+                    "statistic": rundown_np.get('statistic', '平均值'),
+                    "duration": rundown_np.get('duration', 1),
+                    "logic": logic_map.get(rundown_np.get('logic', '<'), '<'),
+                    "threshold": rundown_np.get('threshold', 100)
+                }
+            
+            # 保存displayChannels
+            display_channels = params.get('displayChannels', [])
+            if display_channels:
+                function_calc['displayChannels'] = display_channels
+            
+            # 如果还没有fileId，从session中获取并保存
+            file_id = session.get('file_id')
+            if file_id and 'fileId' not in existing_config:
+                existing_config['fileId'] = file_id
+            
+            # 保存配置
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(existing_config, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"已保存功能计算配置到: {config_path}")
+        except Exception as e:
+            logger.error(f"保存功能计算配置到JSON文件失败: {e}", exc_info=True)
+            import traceback
+            traceback.print_exc()
 
     def _extract_channels(self, file_path: str) -> List[str]:
         """从上传文件读取列名作为通道，排除常见时间列"""
@@ -1561,6 +2967,17 @@ class ReportConfigManager:
     def _build_steady_state_config(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """构建稳态配置JSON，供后续计算模块使用"""
         trigger = params.get('triggerLogic', {})
+        
+        def clamp_duration(value: Any) -> float:
+            try:
+                v = float(value)
+            except Exception:
+                v = 1.0
+            if v < 0.1:
+                return 0.1
+            if v > 50:
+                return 50.0
+            return v
         combination = trigger.get('combination', 'AND')
         conditions: List[Dict[str, Any]] = []
         
@@ -1573,9 +2990,9 @@ class ReportConfigManager:
                     "type": cond1.get('type', '统计值'),
                     "channel": cond1.get('channel'),
                     "statistic": cond1.get('statistic', '平均值'),
-                    "duration": cond1.get('duration_sec', 1),
-                    "logic": cond1.get('logic', '大于'),
-                    "threshold": cond1.get('threshold', 0)
+                    "duration": clamp_duration(cond1.get('duration_sec', 1)),
+                    "logic": cond1.get('logic', '>'),
+                    "threshold": cond1.get('threshold', 100)
                 })
         elif combination == 'Cond2_Only':
             # 仅用条件二
@@ -1585,9 +3002,9 @@ class ReportConfigManager:
                     "type": cond2.get('type', '变化幅度'),
                     "channel": cond2.get('channel'),
                     "statistic": cond2.get('statistic', '变化率'),
-                    "duration": cond2.get('duration_sec', 10),
-                    "logic": cond2.get('logic', '小于'),
-                    "threshold": cond2.get('threshold', 0)
+                    "duration": clamp_duration(cond2.get('duration_sec', 1)),
+                    "logic": cond2.get('logic', '>'),
+                    "threshold": cond2.get('threshold', 100)
                 })
         elif combination == 'AND':
             # 同时使用条件一和条件二
@@ -1597,9 +3014,9 @@ class ReportConfigManager:
                     "type": cond1.get('type', '统计值'),
                     "channel": cond1.get('channel'),
                     "statistic": cond1.get('statistic', '平均值'),
-                    "duration": cond1.get('duration_sec', 1),
-                    "logic": cond1.get('logic', '大于'),
-                    "threshold": cond1.get('threshold', 0)
+                    "duration": clamp_duration(cond1.get('duration_sec', 1)),
+                    "logic": cond1.get('logic', '>'),
+                    "threshold": cond1.get('threshold', 100)
                 })
             cond2 = trigger.get('condition2', {})
             if cond2.get('enabled', True) and cond2.get('channel'):
@@ -1607,9 +3024,9 @@ class ReportConfigManager:
                     "type": cond2.get('type', '变化幅度'),
                     "channel": cond2.get('channel'),
                     "statistic": cond2.get('statistic', '变化率'),
-                    "duration": cond2.get('duration_sec', 10),
-                    "logic": cond2.get('logic', '小于'),
-                    "threshold": cond2.get('threshold', 0)
+                    "duration": clamp_duration(cond2.get('duration_sec', 1)),
+                    "logic": cond2.get('logic', '>'),
+                    "threshold": cond2.get('threshold', 100)
                 })
             
             # AND模式下，计算两个条件的displayChannels交集
@@ -1651,6 +3068,194 @@ class ReportConfigManager:
                 }
             }
         }
+    
+    def _build_function_calc_config(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """构建功能计算配置JSON，供后续计算模块使用"""
+        # 逻辑值转换映射（中文转符号）
+        logic_map = {
+            '大于': '>',
+            '小于': '<',
+            '大于等于': '>=',
+            '小于等于': '<=',
+            '等于': '==',
+            '>': '>',
+            '<': '<',
+            '>=': '>=',
+            '<=': '<=',
+            '==': '=='
+        }
+        
+        def clamp_duration(value: Any) -> float:
+            try:
+                v = float(value)
+            except Exception:
+                v = 1.0
+            if v < 0.1:
+                return 0.1
+            if v > 50:
+                return 50.0
+            return v
+
+        function_calc = {}
+        
+        # 构建时间（基准时刻）配置
+        time_base = params.get('time_base', {})
+        if time_base:
+            function_calc['time'] = {
+                "channel": time_base.get('channel', 'Ng'),
+                "statistic": time_base.get('statistic', '平均值'),
+                "duration": clamp_duration(time_base.get('duration', 1)),
+                "logic": logic_map.get(time_base.get('logic', '>'), '>'),
+                "threshold": time_base.get('threshold', 100)
+            }
+        
+        # 构建启动时间配置
+        startup_time = params.get('startup_time', {})
+        if startup_time:
+            function_calc['startupTime'] = {
+                "channel": startup_time.get('channel', 'Ng'),
+                "statistic": startup_time.get('statistic', '平均值'),
+                "duration": clamp_duration(startup_time.get('duration', 1)),
+                "logic": logic_map.get(startup_time.get('logic', '>'), '>'),
+                "threshold": startup_time.get('threshold', 100)
+            }
+        
+        # 构建点火时间配置
+        ignition_time = params.get('ignition_time', {})
+        if ignition_time:
+            function_calc['ignitionTime'] = {
+                "channel": ignition_time.get('channel', 'Pressure(kPa)'),
+                "type": ignition_time.get('type', 'difference'),
+                "duration": clamp_duration(ignition_time.get('duration', 1)),
+                "logic": logic_map.get(ignition_time.get('logic', '>'), '>'),
+                "threshold": ignition_time.get('threshold', 100)
+            }
+        
+        # 构建Ng余转时间配置
+        rundown_ng = params.get('rundown_ng', {})
+        if rundown_ng:
+            # 强制使用Ng通道（从availableChannels中找到匹配的Ng通道，大小写不敏感）
+            available_channels = params.get('availableChannels', [])
+            ng_channel = 'Ng'  # 默认值
+            if available_channels:
+                for channel in available_channels:
+                    if channel.lower() == 'ng':
+                        ng_channel = channel
+                        break
+            
+            rundown_ng_config = {
+                "channel": ng_channel,  # 强制使用Ng通道
+                "statistic": rundown_ng.get('statistic', '平均值'),
+                "duration": clamp_duration(rundown_ng.get('duration', 1)),
+                "logic": logic_map.get(rundown_ng.get('logic', '>'), '>'),
+            }
+            # 如果有threshold，使用threshold；否则使用threshold1和threshold2
+            if 'threshold' in rundown_ng:
+                rundown_ng_config['threshold'] = rundown_ng.get('threshold', 100)
+            else:
+                if 'threshold1' in rundown_ng:
+                    rundown_ng_config['threshold1'] = rundown_ng.get('threshold1', 100)
+                if 'threshold2' in rundown_ng:
+                    rundown_ng_config['threshold2'] = rundown_ng.get('threshold2', 200)
+            function_calc['rundownNg'] = rundown_ng_config
+        
+        # 构建Np余转时间配置
+        rundown_np = params.get('rundown_np', {})
+        if rundown_np:
+            # 强制使用Np通道（从availableChannels中找到匹配的Np通道，大小写不敏感）
+            available_channels = params.get('availableChannels', [])
+            np_channel = 'Np'  # 默认值
+            if available_channels:
+                for channel in available_channels:
+                    if channel.lower() == 'np':
+                        np_channel = channel
+                        break
+            
+            rundown_np_config = {
+                "channel": np_channel,  # 强制使用Np通道
+                "statistic": rundown_np.get('statistic', '平均值'),
+                "duration": clamp_duration(rundown_np.get('duration', 1)),
+                "logic": logic_map.get(rundown_np.get('logic', '>'), '>'),
+            }
+            # 如果有threshold，使用threshold；否则使用threshold1和threshold2
+            if 'threshold' in rundown_np:
+                rundown_np_config['threshold'] = rundown_np.get('threshold', 100)
+            else:
+                if 'threshold1' in rundown_np:
+                    rundown_np_config['threshold1'] = rundown_np.get('threshold1', 100)
+                if 'threshold2' in rundown_np:
+                    rundown_np_config['threshold2'] = rundown_np.get('threshold2', 200)
+            function_calc['rundownNp'] = rundown_np_config
+        
+        # 添加displayChannels
+        display_channels = params.get('displayChannels', [])
+        if display_channels:
+            function_calc['displayChannels'] = display_channels
+        
+        return {
+            "reportConfig": {
+                "functionCalc": function_calc
+            }
+        }
+
+def detect_multiple_actions(user_input: str) -> bool:
+    """
+    检测用户输入是否包含多个参数修改
+    
+    检测规则：
+    1. 包含逗号或顿号分隔符
+    2. 包含多个参数关键词（通道、阈值、统计方法、持续时长、判断依据等）
+    3. 包含多个数值或字符串值
+    
+    Args:
+        user_input: 用户输入的自然语言
+        
+    Returns:
+        True 如果检测到多个参数，False 否则
+    """
+    if not user_input or not user_input.strip():
+        return False
+    
+    user_input = user_input.strip()
+    
+    # 检测方法1: 包含逗号或顿号分隔符
+    if '，' in user_input or ',' in user_input:
+        return True
+    
+    # 检测方法2: 统计参数关键词的数量
+    param_keywords = [
+        '通道', 'channel',
+        '阈值', 'threshold',
+        '统计方法', '统计', '方法',
+        '持续时长', '持续时间', '时长',
+        '判断依据', '判据', '逻辑',
+        '计算类型', '类型'
+    ]
+    
+    keyword_count = 0
+    for keyword in param_keywords:
+        if keyword in user_input.lower():
+            keyword_count += 1
+    
+    # 如果包含2个或以上的参数关键词，可能是多个参数
+    if keyword_count >= 2:
+        # 进一步验证：检查是否有对应的值
+        # 提取所有数字（可能是阈值、持续时长等）
+        import re
+        numbers = re.findall(r'\d+', user_input)
+        # 检查是否包含统计方法的值（最大值、最小值、平均值等）
+        statistic_values = ['最大', '最小', '平均', '中位']
+        has_statistic_value = any(val in user_input for val in statistic_values)
+        
+        # 检查是否包含通道名称（如np、ng等）
+        channel_keywords = ['np', 'ng', '通道']
+        has_channel = any(kw in user_input.lower() for kw in channel_keywords)
+        
+        # 如果有关键词且（有数字 或 有统计方法值 或 有通道），很可能是多个参数
+        if numbers or has_statistic_value or has_channel:
+            return True
+    
+    return False
 
 async def parse_config_intent_with_llm(utterance: str, current_params: dict, current_context: dict = None, force_multiple_actions: bool = False) -> dict:
     """
@@ -1667,13 +3272,21 @@ async def parse_config_intent_with_llm(utterance: str, current_params: dict, cur
     
     # 获取当前上下文
     current_condition = None
+    current_step = None
+    current_step_name = None
     if current_context:
         current_condition = current_context.get('current_condition')
+        current_step = current_context.get('current_step')
+        current_step_name = current_context.get('current_step_name')
     
     # 构建上下文提示
     context_hint = ""
     if current_condition:
+        # 稳态参数的上下文提示
         context_hint = f"\n\n【⚠️⚠️⚠️ 非常重要】当前上下文：您正在编辑{current_condition}的参数。\n- 【⚠️⚠️⚠️ 最高优先级规则】如果用户明确说了\"条件一\"或\"条件二\"，必须无条件按照用户明确说的条件返回，绝对不能受当前上下文（current_condition）影响！例如：如果当前上下文是条件二，但用户明确说\"条件一的阈值改为2000\"，必须返回{{\"action\": \"修改条件一阈值\", \"value\": 2000}}，绝对不能返回\"修改条件二...\"！\n- 如果用户没有明确指定是\"条件一\"还是\"条件二\"，action字段中必须包含当前条件名称（{current_condition}）。\n- 例如，如果当前在编辑条件一，用户说\"把阈值改为2000\"，必须返回{{\"action\": \"修改条件一阈值\", \"value\": 2000}}，而不是{{\"action\": \"修改阈值\", \"value\": 2000}}。\n- 【关键】如果用户同时修改多个参数（使用actions数组），且没有明确指定条件，那么actions数组中的所有action都必须应用到同一个条件（{current_condition}），绝对不能混用！例如，如果current_condition='条件一'，用户说\"通道改为np，统计方法改为最大值\"，必须返回[{{\"action\": \"修改条件一监控通道\", \"value\": \"Np\"}}, {{\"action\": \"修改条件一统计方法\", \"value\": \"最大值\"}}]，绝对不能返回\"修改条件二...\"！"
+    elif current_step and current_step_name:
+        # 功能计算的上下文提示
+        context_hint = f"\n\n【⚠️⚠️⚠️ 非常重要】当前上下文：您正在配置功能计算的\"{current_step_name}\"步骤。\n- action字段应该直接包含要修改的参数名称，不需要包含步骤名称，例如：\"修改阈值\"、\"修改监控通道\"、\"修改统计方法\"等。\n- 如果当前步骤是\"Ng余转时间\"或\"Np余转时间\"，用户说\"修改阈值\"时，需要根据上下文判断是\"高阈值\"还是\"低阈值\"。如果用户明确说\"高阈值\"或\"低阈值\"，必须返回对应的action（\"修改高阈值\"或\"修改低阈值\"）。\n- 例如，当前在配置\"Ng余转时间\"，用户说\"把高阈值改为1500\" -> {{\"action\": \"修改高阈值\", \"value\": 1500}}\n- 例如，当前在配置\"点火时间\"，用户说\"把阈值改为600\" -> {{\"action\": \"修改阈值\", \"value\": 600}}\n- 例如，当前在配置\"时间（基准时刻）\"，用户说\"修改监控通道为Ng\" -> {{\"action\": \"修改监控通道\", \"value\": \"Ng\"}}"
     
     # 如果强制要求识别多个参数，添加特别提示
     multiple_params_hint = ""
@@ -1699,7 +3312,8 @@ async def parse_config_intent_with_llm(utterance: str, current_params: dict, cur
 2. 如果用户同时修改多个参数（用逗号、顿号、和、以及等连接），必须返回格式：{{"actions": [{{"action": "修改阈值", "value": 2000}}, {{"action": "修改统计方法", "value": "最大值"}}]}}
    - 注意：如果用户说了多个参数，必须使用actions数组，不要只返回单个action！
    - 例如："把阈值改为2000，统计方法改为最大值" -> 必须返回{{"actions": [...]}}，而不是单个{{"action": ...}}
-3. action字段应该包含要修改的参数名称和操作，例如：
+3. action字段应该包含要修改的参数名称和操作：
+   【稳态参数】（当current_condition存在时）：
    - "修改条件一阈值"（当用户说"把阈值改为2000"且当前上下文是条件一时，或用户明确说"条件一的阈值改为2000"时）
    - "修改条件二阈值"（当用户说"把阈值改为2000"且当前上下文是条件二时，或用户明确说"条件二的阈值改为2000"时）
    - "修改条件一统计方法"（当用户说"修改统计方法为最大值"且当前上下文是条件一时，或用户明确说"条件一的统计方法改为最大值"时）
@@ -1707,30 +3321,67 @@ async def parse_config_intent_with_llm(utterance: str, current_params: dict, cur
    - "修改条件二持续时长"（当用户说"设置持续时长为5秒"且当前上下文是条件二时，或用户明确说"条件二的持续时长改为5秒"时）
    - 注意：如果当前上下文存在且用户没有明确指定条件，action中必须包含条件名称（"条件一"或"条件二"）
    - 【⚠️特别重要】如果用户同时修改多个参数（使用actions数组），且没有明确指定条件，那么actions数组中的所有action都必须应用到同一个条件（current_condition），必须保持一致！
+   【功能计算】（当current_step存在时）：
+   - "修改阈值"（当用户说"把阈值改为600"、"阈值改为500"等时）
+   - "修改监控通道"（当用户说"通道改为Ng"、"监控通道改为Np"等时）
+   - "修改统计方法"（当用户说"统计方法改为最大值"、"改为最小值"等时）
+   - "修改持续时长"（当用户说"持续时长改为5秒"、"时长改为10"等时）
+   - "修改判断依据"（当用户说"判断依据改为大于"、"逻辑改为小于"等时）
+   - "修改高阈值"（当用户在Ng余转时间或Np余转时间步骤说"高阈值改为1500"、"T1改为1500"等时）
+   - "修改低阈值"（当用户在Ng余转时间或Np余转时间步骤说"低阈值改为100"、"T2改为100"等时）
+   - 注意：功能计算的action不需要包含步骤名称，直接使用参数名称即可
+   - 如果用户在Ng余转时间或Np余转时间步骤只说"阈值"而没有明确说"高阈值"或"低阈值"，优先理解为"高阈值"
 4. value字段应该是修改后的具体值，例如：
    - 数字值：2000、5、10等
    - 字符串值："最大值"、"平均值"、"大于"、"小于"等
+   - 通道名称：需要转换为正确的格式（如"Ng"、"Np"、"Pressure(kPa)"、"Temperature(°C)"等）
    - 注意：如果用户说"判断依据改为最大值"，这里的"最大值"应该是统计方法，不是判断依据。判断依据的值应该是">"、"<"、">="、"<="等。请智能识别用户的真实意图。
-5. 【重要】条件名称的优先级规则：
+5. 【重要】条件名称的优先级规则（仅适用于稳态参数）：
    - 最高优先级：如果用户明确说了"条件一"或"条件二"，必须无条件按照用户说的条件返回
    - 次优先级：如果用户没有明确指定条件，且当前上下文存在（current_condition不为空），action中必须包含当前条件的名称（"条件一"或"条件二"）
    - 例如：当前上下文是条件二，用户说"把阈值改为2000"（未明确指定条件） -> {{"action": "修改条件二阈值", "value": 2000}}
    - 例如：当前上下文是条件二，用户明确说"条件一的阈值改为2000" -> {{"action": "修改条件一阈值", "value": 2000}}（必须按照用户明确说的条件返回！）
 6. 如果无法识别用户意图，返回空对象{{}}
 
-示例（单个参数，假设当前上下文是条件一）：
+示例（稳态参数 - 单个参数，假设当前上下文是条件一）：
 - 用户说"把条件一的阈值改为2000" -> {{"action": "修改条件一阈值", "value": 2000}}（用户明确说了条件一）
 - 用户说"把阈值改为2000"（未明确指定条件） -> {{"action": "修改条件一阈值", "value": 2000}}（根据当前上下文）
 - 用户说"修改统计方法为最大值"（未明确指定条件） -> {{"action": "修改条件一统计方法", "value": "最大值"}}（根据当前上下文）
 - 【重要示例】假设当前上下文是条件二，用户明确说"条件一的判断依据改为最大值" -> {{"action": "修改条件一统计方法", "value": "最大值"}}（注意：1. 用户明确说了"条件一"，必须返回"修改条件一..."，不能受当前上下文影响；2. "最大值"是统计方法，不是判断依据，请智能识别用户真实意图）
 
-示例（多个参数 - 必须使用actions数组，假设当前上下文是条件一）：
+示例（稳态参数 - 多个参数，假设当前上下文是条件一）：
 - 用户说"把阈值改为2000，统计方法改为最大值"（未明确指定条件） -> {{"actions": [{{"action": "修改条件一阈值", "value": 2000}}, {{"action": "修改条件一统计方法", "value": "最大值"}}]}}（根据当前上下文）
 - 用户说"条件一的阈值改成1000，持续时长改为5秒" -> {{"actions": [{{"action": "修改条件一阈值", "value": 1000}}, {{"action": "修改条件一持续时长", "value": 5}}]}}
 - 用户说"阈值2000，统计方法最大值"（未明确指定条件） -> {{"actions": [{{"action": "修改条件一阈值", "value": 2000}}, {{"action": "修改条件一统计方法", "value": "最大值"}}]}}（根据当前上下文）
 - 用户说"通道改为np，统计方法改为最大值"（未明确指定条件） -> {{"actions": [{{"action": "修改条件一监控通道", "value": "Np"}}, {{"action": "修改条件一统计方法", "value": "最大值"}}]}}（根据当前上下文，两个action必须都是条件一）
 - 【⚠️重要】如果用户没有明确指定条件，actions数组中的所有action都必须应用到同一个条件（current_condition），不能混用！例如，如果current_condition='条件一'，用户说"通道改为np，统计方法改为最大值"，必须返回两个都是"修改条件一..."的action，不能返回"修改条件二..."。
+
+示例（功能计算 - 单个参数，假设当前在配置"点火时间"）：
+- 用户说"把阈值改为600" -> {{"action": "修改阈值", "value": 600}}
+- 用户说"修改监控通道为Ng" -> {{"action": "修改监控通道", "value": "Ng"}}
+- 用户说"统计方法改为最大值" -> {{"action": "修改统计方法", "value": "最大值"}}
+- 用户说"持续时长改为5秒" -> {{"action": "修改持续时长", "value": 5}}
+- 用户说"判断依据改为大于" -> {{"action": "修改判断依据", "value": ">"}}
+
+示例（功能计算 - Ng余转时间/Np余转时间，假设当前在配置"Ng余转时间"）：
+- 用户说"把高阈值改为1500" -> {{"action": "修改高阈值", "value": 1500}}
+- 用户说"低阈值改为100" -> {{"action": "修改低阈值", "value": 100}}
+- 用户说"阈值改为1500"（未明确说高阈值还是低阈值） -> {{"action": "修改高阈值", "value": 1500}}（优先理解为高阈值）
+- 用户说"T1改为1500" -> {{"action": "修改高阈值", "value": 1500}}（T1表示高阈值）
+- 用户说"T2改为100" -> {{"action": "修改低阈值", "value": 100}}（T2表示低阈值）
+
+示例（功能计算 - 多个参数，假设当前在配置"时间（基准时刻）"）：
+- 用户说"把阈值改为600，统计方法改为最大值" -> {{"actions": [{{"action": "修改阈值", "value": 600}}, {{"action": "修改统计方法", "value": "最大值"}}]}}
+- 用户说"通道改为Ng，持续时长改为5秒" -> {{"actions": [{{"action": "修改监控通道", "value": "Ng"}}, {{"action": "修改持续时长", "value": 5}}]}}
+
+示例（导航操作 - 这些操作用于进入下一个步骤或确认当前步骤）：
+- 用户说"下一步" -> {{"action": "下一步", "value": null}}
+- 用户说"继续" -> {{"action": "继续", "value": null}}
+- 用户说"确认" -> {{"action": "确认", "value": null}}
 - 用户说"确认配置" -> {{"action": "确认配置", "value": null}}
+- 用户说"完成" -> {{"action": "完成", "value": null}}
+
+【⚠️重要】如果用户只说"下一步"、"继续"、"确认"、"完成"等导航操作，必须返回对应的action，绝对不能解析为参数修改操作（如"修改监控通道"）！例如，如果用户说"下一步"，必须返回{{"action": "下一步", "value": null}}，绝对不能返回{{"action": "修改监控通道", "value": "Np"}}等参数修改操作！
 
 请返回JSON格式："""
     

@@ -332,12 +332,39 @@ const ChatPage: React.FC = () => {
     setIsLoading(true)
     try {
       // 1) 先选择所有通道
+      const successChannels: string[] = []
+      const failedChannels: string[] = []
+      
+      console.log('[DEBUG] 开始选择通道，选中的通道:', selectedChannels)
+      
       for (const channel of selectedChannels) {
-        await fetch('/api/config-dialogue/update-config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: configMode.sessionId, user_input: `选择 ${channel}` })
-        })
+        try {
+          const channelResponse = await fetch('/api/config-dialogue/update-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: configMode.sessionId, user_input: `选择 ${channel}` })
+          })
+          
+          const channelData = await channelResponse.json()
+          
+          if (channelResponse.ok) {
+            successChannels.push(channel)
+            console.log(`[DEBUG] 通道 "${channel}" 选择成功`)
+          } else {
+            failedChannels.push(channel)
+            console.error(`[DEBUG] 通道 "${channel}" 选择失败:`, channelData.detail || '未知错误')
+          }
+        } catch (error: any) {
+          failedChannels.push(channel)
+          console.error(`[DEBUG] 通道 "${channel}" 请求失败:`, error)
+        }
+      }
+      
+      console.log('[DEBUG] 通道选择完成，成功:', successChannels.length, '失败:', failedChannels.length)
+      
+      if (failedChannels.length > 0) {
+        console.warn('[DEBUG] 以下通道选择失败:', failedChannels)
+        message.warning(`部分通道选择失败: ${failedChannels.join(', ')}`)
       }
 
       // 2) 调用"完成通道选择"，后端会返回默认条件一和二
@@ -348,6 +375,13 @@ const ChatPage: React.FC = () => {
       })
 
       const data = await response.json()
+      
+      console.log('[DEBUG] 完成通道选择后的响应:', {
+        ok: response.ok,
+        state: data.state || data.status,
+        current_params: data.current_params,
+        message: data.message
+      })
       
       if (!response.ok) {
         throw new Error(data.detail || '完成通道选择失败')
@@ -447,15 +481,29 @@ const ChatPage: React.FC = () => {
       if (reportType === '稳态分析') {
         const base = lastFileChannels && lastFileChannels.length > 0
           ? lastFileChannels
-          : ['Ng(rpm)', 'Np(rpm)', 'Temperature(°C)', 'Pressure(kPa)']
+          : ['Ng', 'Np', 'Temperature(°C)', 'Pressure(kPa)']
         // 默认全选所有通道
         setSelectedChannels([...base])
         setChannelModalVisible(true)
         // 确保候选存在
         setLastFileChannels(base)
         // 有弹窗时不显示AI消息
+      } else if (reportType === '功能计算') {
+        // 功能计算直接显示AI消息，进入配置流程
+        const aiMessage: Message = {
+          id: uuidv4(),
+          type: 'ai',
+          content: configResponse.message || '开始功能计算配置',
+          timestamp: new Date(),
+          metadata: {
+            suggestedActions: configResponse.suggested_actions || [],
+            configState: configResponse.status,
+            currentParams: configResponse.config || {}
+          }
+        }
+        setMessages(prev => [...prev, aiMessage])
       } else {
-        // 功能计算、状态评估、完整报表暂不支持，不显示任何内容
+        // 状态评估、完整报表暂不支持，不显示任何内容
         // 不显示AI消息
       }
 

@@ -64,6 +64,12 @@
       }
     }
   ],
+  "availableChannels": [
+    "Ng",
+    "Np",
+    "Temperature(°C)",
+    "Pressure(kPa)"
+  ],
   "reportConfig": {
     "sections": [
       "stableState",

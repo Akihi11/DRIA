@@ -26,6 +26,25 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+def _is_config_state(state: str) -> bool:
+    """
+    判断是否是配置相关的状态（允许继续处理多个参数的状态）
+    
+    包括：
+    - 稳态配置：parameter_config
+    - 功能计算配置：time_base_config, startup_time_config, ignition_time_config, 
+                     rundown_ng_config, rundown_np_config
+    """
+    config_states = {
+        "parameter_config",  # 稳态配置
+        "time_base_config",  # 功能计算：时间（基准时刻）配置
+        "startup_time_config",  # 功能计算：启动时间配置
+        "ignition_time_config",  # 功能计算：点火时间配置
+        "rundown_ng_config",  # 功能计算：Ng余转时间配置
+        "rundown_np_config",  # 功能计算：Np余转时间配置
+    }
+    return state in config_states
+
 def _build_summary_message(all_responses: list, final_response, failed_actions: list) -> str:
     """
     汇总多个响应的消息
@@ -189,11 +208,11 @@ async def start_config_dialogue(request: StartConfigRequest):
     开始配置对话会话
     
     用户点击报表按钮后，系统进入配置模式，支持通过自然语言对话配置参数
-    对于steady_state类型，使用状态驱动的ReportConfigManager
+    对于steady_state和function_calc类型，使用状态驱动的ReportConfigManager
     """
     try:
-        # 对于steady_state，使用状态驱动的ReportConfigManager
-        if request.report_type == "steady_state":
+        # 对于steady_state和function_calc，使用状态驱动的ReportConfigManager
+        if request.report_type == "steady_state" or request.report_type == "function_calc":
             # 延迟导入避免循环导入
             from backend.api.routes.report_config import config_manager as report_config_manager
             session_id = f"{request.user_id}_{request.report_type}_{int(time.time())}"
@@ -248,6 +267,9 @@ def _is_explicit_button_action(user_input: str) -> bool:
         r'^确认$',
         r'^完成$',
         r'^好了$',
+        r'^下一步$',
+        r'^下一步骤$',
+        r'^继续$',
         r'^确认生成$',
         r'^修改配置$',
         r'^取消配置$',
@@ -259,6 +281,122 @@ def _is_explicit_button_action(user_input: str) -> bool:
     
     return False
 
+def _normalize_actions_to_current_condition(actions: list, user_input: str, current_context: dict) -> list:
+    """
+    修正LLM返回的actions，确保它们应用到当前上下文的条件（如果用户没有明确指定条件）
+    
+    Args:
+        actions: LLM返回的actions列表
+        user_input: 用户输入的原始文本
+        current_context: 当前上下文信息，包含current_condition
+        
+    Returns:
+        修正后的actions列表
+    """
+    if not actions or not isinstance(actions, list):
+        return actions
+    
+    # 检查用户是否明确指定了条件
+    user_explicitly_specified_condition = False
+    if '条件一' in user_input or '条件1' in user_input or 'condition1' in user_input.lower():
+        user_explicitly_specified_condition = True
+    elif '条件二' in user_input or '条件2' in user_input or 'condition2' in user_input.lower():
+        user_explicitly_specified_condition = True
+    
+    # 如果用户明确指定了条件，不需要修正
+    if user_explicitly_specified_condition:
+        return actions
+    
+    # 获取当前上下文的条件
+    current_condition = current_context.get('current_condition') if current_context else None
+    
+    # 如果当前上下文没有条件，不需要修正
+    if not current_condition:
+        return actions
+    
+    # 检查actions是否都应用到当前条件
+    # 严格过滤：如果用户没有明确指定条件，只保留当前上下文条件的actions
+    normalized_actions = []
+    seen_params = set()  # 用于去重，避免同一个参数被修改多次
+    
+    for action_item in actions:
+        action = action_item.get('action', '')
+        value = action_item.get('value')
+        
+        # 检查action中是否包含条件名称
+        has_condition_one = '条件一' in action or '条件1' in action
+        has_condition_two = '条件二' in action or '条件2' in action
+        
+        # 如果action中包含条件名称，必须严格匹配当前上下文条件
+        if has_condition_one or has_condition_two:
+            # 检查是否是当前上下文条件
+            is_current_condition = False
+            if current_condition == '条件一' and has_condition_one:
+                is_current_condition = True
+            elif current_condition == '条件二' and has_condition_two:
+                is_current_condition = True
+            
+            if is_current_condition:
+                # 是当前条件，保留（但要去重）
+                if '修改' in action:
+                    # 提取参数名称用于去重（去除条件名称）
+                    param_name = action.replace('修改', '').replace('条件一', '').replace('条件二', '').replace('条件1', '').replace('条件2', '').strip()
+                    if param_name not in seen_params:
+                        normalized_actions.append(action_item)
+                        seen_params.add(param_name)
+                        logger.info(f"[保留action] 当前上下文条件匹配: {action}, 参数: {param_name}")
+                    else:
+                        logger.warning(f"[过滤重复] 跳过重复的参数修改: {action} (参数{param_name}已被处理)")
+                else:
+                    # 非修改类的action（如"下一步"等），保留
+                    normalized_actions.append(action_item)
+            else:
+                # 不是当前条件，严格过滤掉
+                logger.warning(f"[严格过滤] 过滤掉非当前上下文条件的action: {action}, 当前上下文: {current_condition}")
+                continue  # 跳过这个action
+        else:
+            # action中没有指定条件名称，需要添加当前条件
+            if '修改' in action and current_condition:
+                # 提取参数名称
+                param_name = action.replace('修改', '').strip()
+                # 检查是否已经处理过相同参数（可能在其他action中已经处理过）
+                if param_name not in seen_params:
+                    corrected_action = f'修改{current_condition}{param_name}'
+                    normalized_actions.append({
+                        'action': corrected_action,
+                        'value': value
+                    })
+                    seen_params.add(param_name)
+                    logger.info(f"[修正action] 原action: {action}, 修正后: {corrected_action}, 当前上下文: {current_condition}")
+                else:
+                    logger.warning(f"[过滤重复] 跳过重复的参数修改: {action} (参数{param_name}已被处理)")
+            else:
+                # 不是参数修改action（如"下一步"、"确认"等），直接保留
+                normalized_actions.append(action_item)
+    
+    # 最终检查：确保没有同时包含两个条件的actions
+    if len(normalized_actions) > 0:
+        conditions_in_actions = set()
+        for action_item in normalized_actions:
+            action = action_item.get('action', '')
+            if '条件一' in action or '条件1' in action:
+                conditions_in_actions.add('条件一')
+            if '条件二' in action or '条件2' in action:
+                conditions_in_actions.add('条件二')
+        
+        if len(conditions_in_actions) > 1:
+            logger.error(f"[严重错误] 发现actions中同时包含多个条件: {conditions_in_actions}, actions: {normalized_actions}")
+            # 如果仍然发现多个条件，只保留当前上下文条件的actions
+            filtered_actions = []
+            for action_item in normalized_actions:
+                action = action_item.get('action', '')
+                if current_condition in action:
+                    filtered_actions.append(action_item)
+            normalized_actions = filtered_actions
+            logger.warning(f"[强制过滤] 强制过滤后只保留当前上下文条件的actions: {len(normalized_actions)}个")
+    
+    return normalized_actions
+
 def _parse_natural_language_fallback(user_input: str) -> Dict[str, Any]:
     """
     当LLM解析失败时，使用规则匹配作为fallback解析自然语言输入
@@ -269,16 +407,98 @@ def _parse_natural_language_fallback(user_input: str) -> Dict[str, Any]:
     - "统计方法改为最大值" / "修改统计方法为最大值" -> action="修改统计方法", value="最大值"
     - "持续时长改为5秒" / "设置持续时长为5" -> action="修改持续时长", value=5
     - "判据改为大于" / "修改判据为大于" / "判断依据改为大于" / "修改判断依据为大于" -> action="修改判断依据", value="大于"
+    - "通道改成np" / "监控通道改为np" -> action="修改监控通道", value="Np"
     
-    支持多个参数：
+    支持多个参数（有逗号分隔）：
     - "统计方法改为最大值，阈值改为1667" -> {"actions": [{"action": "修改统计方法", "value": "最大值"}, {"action": "修改阈值", "value": 1667}]}
+    
+    支持多个参数（无逗号分隔）：
+    - "通道改成np 阈值2600 统计方法改为最大值" -> {"actions": [{"action": "修改监控通道", "value": "Np"}, {"action": "修改阈值", "value": 2600}, {"action": "修改统计方法", "value": "最大值"}]}
     """
     user_input = user_input.strip()
     
     # 检查是否包含多个参数（通过逗号分隔）
-    if '，' in user_input or ',' in user_input:
-        # 分割成多个部分
-        parts = re.split(r'[，,]\s*', user_input)
+    has_comma = '，' in user_input or ',' in user_input
+    
+    # 检测是否包含多个参数（即使没有逗号）
+    # 使用detect_multiple_actions函数进行检测
+    try:
+        from backend.api.routes.report_config import detect_multiple_actions
+        has_multiple_params = detect_multiple_actions(user_input)
+    except Exception:
+        # 如果导入失败，使用简单检测
+        has_multiple_params = False
+        param_keywords = ['通道', '阈值', '统计', '方法', '持续时长', '判断依据', '判据']
+        keyword_count = sum(1 for kw in param_keywords if kw in user_input)
+        has_multiple_params = keyword_count >= 2
+    
+    # 如果有多个参数（无论是否有逗号），尝试解析所有参数
+    if has_comma or has_multiple_params:
+        # 分割成多个部分（如果有逗号按逗号分割，否则按关键词分割）
+        if has_comma:
+            parts = re.split(r'[，,]\s*', user_input)
+        else:
+            # 没有逗号时，尝试按关键词分割
+            # 使用正则表达式匹配参数模式
+            # 例如："通道改成np 阈值2600 统计方法改为最大值"
+            # 匹配模式：参数名 + 改成/改为/改为等动词 + 值
+            pattern_parts = []
+            
+            # 先尝试按常见参数关键词分割
+            # 通道相关（支持"通道改成np"或"通道np"）
+            channel_match = re.search(r'(?:通道|监控通道)(?:[改成改为为]+)?([a-zA-Z0-9\u4e00-\u9fa5]+)', user_input, re.IGNORECASE)
+            if channel_match:
+                channel_part = channel_match.group(0)
+                pattern_parts.append(('channel', channel_part))
+            
+            # 阈值相关（支持"阈值2600"或"阈值改为2600"）
+            threshold_match = re.search(r'阈值(?:[改成改为为]+)?(\d+)', user_input)
+            if threshold_match:
+                threshold_part = threshold_match.group(0)
+                pattern_parts.append(('threshold', threshold_part))
+            
+            # 统计方法相关（支持"统计方法改为最大值"或"统计方法最大值"）
+            statistic_match = re.search(r'(统计方法|统计|方法)(?:[改成改为为]+)?(最大值|最小值|平均值|中位数)', user_input)
+            if statistic_match:
+                statistic_part = statistic_match.group(0)
+                pattern_parts.append(('statistic', statistic_part))
+            
+            # 持续时长相关
+            duration_match = re.search(r'(持续时长|持续时间|时长)[改成改为为]*(\d+)', user_input)
+            if duration_match:
+                duration_part = duration_match.group(0)
+                pattern_parts.append(('duration', duration_part))
+            
+            # 判断依据相关
+            logic_match = re.search(r'(判断依据|判据|逻辑)[改成改为为]+(大于|小于|大于等于|小于等于)', user_input)
+            if logic_match:
+                logic_part = logic_match.group(0)
+                pattern_parts.append(('logic', logic_part))
+            
+            # 如果通过模式匹配找到了多个部分，使用这些部分
+            if len(pattern_parts) >= 2:
+                parts = [part[1] for part in pattern_parts]
+            else:
+                # 如果模式匹配失败，尝试按关键词简单分割
+                # 查找所有参数关键词的位置，按位置分割
+                keywords = ['通道', '阈值', '统计方法', '统计', '方法', '持续时长', '判断依据', '判据']
+                split_points = []
+                for keyword in keywords:
+                    for match in re.finditer(keyword, user_input):
+                        split_points.append(match.start())
+                
+                if len(split_points) >= 2:
+                    # 有多个关键词，按关键词位置分割
+                    split_points = sorted(split_points)
+                    parts = []
+                    for i, start in enumerate(split_points):
+                        end = split_points[i + 1] if i + 1 < len(split_points) else len(user_input)
+                        part = user_input[start:end].strip()
+                        if part:
+                            parts.append(part)
+                else:
+                    # 没有找到足够的分割点，按空格分割
+                    parts = [p.strip() for p in user_input.split() if p.strip()]
         actions = []
         condition_prefix = ""
         
@@ -294,6 +514,21 @@ def _parse_natural_language_fallback(user_input: str) -> Dict[str, Any]:
             if not part:
                 continue
             
+            # 解析通道修改（监控通道）
+            if '通道' in part or 'channel' in part.lower():
+                # 尝试提取通道名称（np、ng等），支持"通道改成np"或"通道np"
+                channel_match = re.search(r'(?:通道|监控通道)(?:[改成改为为]+)?([a-zA-Z0-9\u4e00-\u9fa5]+)', part, re.IGNORECASE)
+                if channel_match:
+                    channel_value = channel_match.group(1).strip()
+                    # 将小写转换为首字母大写（如np -> Np）
+                    if channel_value.lower() in ['np', 'ng']:
+                        channel_value = channel_value.upper()
+                    actions.append({
+                        'action': f'修改{condition_prefix}监控通道' if condition_prefix else '修改监控通道',
+                        'value': channel_value
+                    })
+                    continue
+            
             # 解析阈值修改
             if '阈值' in part or 'threshold' in part.lower():
                 numbers = re.findall(r'\d+', part)
@@ -304,7 +539,7 @@ def _parse_natural_language_fallback(user_input: str) -> Dict[str, Any]:
                     })
                     continue
             
-            # 解析统计方法修改
+            # 解析统计方法修改（支持"统计方法改为最大值"或"统计方法最大值"）
             if any(keyword in part for keyword in ['统计', '方法', '计算']):
                 if '平均' in part:
                     actions.append({
@@ -381,6 +616,19 @@ def _parse_natural_language_fallback(user_input: str) -> Dict[str, Any]:
         condition_prefix = "条件一"
     elif '条件二' in user_input or '条件2' in user_input or 'condition2' in user_input.lower():
         condition_prefix = "条件二"
+    
+    # 解析通道修改（监控通道）（支持"通道改成np"或"通道np"）
+    if '通道' in user_input or 'channel' in user_input.lower():
+        # 尝试提取通道名称（np、ng等），支持多种格式
+        channel_match = re.search(r'(?:通道|监控通道)(?:[改成改为为]+)?([a-zA-Z0-9\u4e00-\u9fa5]+)', user_input, re.IGNORECASE)
+        if channel_match:
+            channel_value = channel_match.group(1).strip()
+            # 将小写转换为首字母大写（如np -> Np）
+            if channel_value.lower() in ['np', 'ng']:
+                channel_value = channel_value.upper()
+            result['action'] = f'修改{condition_prefix}监控通道' if condition_prefix else '修改监控通道'
+            result['value'] = channel_value
+            return result
     
     # 解析阈值修改
     if '阈值' in user_input or 'threshold' in user_input.lower():
@@ -493,38 +741,79 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                     match = re.search(r'(\d+)', request.user_input)
                     if match:
                         value = int(match.group(1))
+                    # 明确的按钮操作直接处理并返回，不调用LLM
+                    parsed_by_llm = False
+                    config_response = report_config_manager.update_config(
+                        request.session_id,
+                        action,
+                        value,
+                        parsed_by_llm=parsed_by_llm
+                    )
+                    return UpdateConfigResponse(
+                        success=True,
+                        message=config_response.message,
+                        config=config_response.current_params,
+                        status=config_response.state,
+                        suggested_actions=config_response.suggested_actions or []
+                    )
                 else:
                     # 不是明确的按钮操作：先尝试LLM解析，失败后使用规则匹配fallback
                     action = request.user_input
+                    parsed_by_llm = False
                     
                     # 尝试使用LLM解析自然语言输入（但捕获异常避免影响明确操作）
                     try:
-                        from backend.api.routes.report_config import parse_config_intent_with_llm
+                        from backend.api.routes.report_config import parse_config_intent_with_llm, detect_multiple_actions
                         
                         # 构建当前上下文信息
-                        # 优先级：1. last_modified_condition（上一次修改的条件） 2. 默认条件（根据combination判断）
                         current_context = {}
-                        trigger_logic = params.get('triggerLogic', {})
-                        combination = trigger_logic.get('combination', 'AND')
+                        current_state = session.get('state', '') if session else ''
                         
-                        # 优先使用last_modified_condition（如果存在）
-                        last_modified_condition = session.get('last_modified_condition') if session else None
-                        if last_modified_condition:
-                            current_context['current_condition'] = last_modified_condition
+                        # 判断是稳态参数还是功能计算
+                        if current_state in ['time_base_config', 'startup_time_config', 'ignition_time_config', 'rundown_ng_config', 'rundown_np_config']:
+                            # 功能计算：设置当前步骤信息
+                            step_names = {
+                                'time_base_config': '时间（基准时刻）',
+                                'startup_time_config': '启动时间',
+                                'ignition_time_config': '点火时间',
+                                'rundown_ng_config': 'Ng余转时间',
+                                'rundown_np_config': 'Np余转时间'
+                            }
+                            current_context['current_step'] = current_state
+                            current_context['current_step_name'] = step_names.get(current_state, '')
                         else:
-                            # 如果没有last_modified_condition，根据combination判断默认条件
-                            if combination == 'AND':
-                                # AND模式下，默认条件一
-                                current_context['current_condition'] = '条件一'
-                            elif combination == 'Cond1_Only':
-                                current_context['current_condition'] = '条件一'
-                            elif combination == 'Cond2_Only':
-                                current_context['current_condition'] = '条件二'
+                            # 稳态参数：优先级：1. last_modified_condition（上一次修改的条件） 2. 默认条件（根据combination判断）
+                            trigger_logic = params.get('triggerLogic', {})
+                            combination = trigger_logic.get('combination', 'AND')
+                            
+                            # 优先使用last_modified_condition（如果存在）
+                            last_modified_condition = session.get('last_modified_condition') if session else None
+                            if last_modified_condition:
+                                current_context['current_condition'] = last_modified_condition
+                            else:
+                                # 如果没有last_modified_condition，根据combination判断默认条件
+                                if combination == 'AND':
+                                    # AND模式下，默认条件一
+                                    current_context['current_condition'] = '条件一'
+                                elif combination == 'Cond1_Only':
+                                    current_context['current_condition'] = '条件一'
+                                elif combination == 'Cond2_Only':
+                                    current_context['current_condition'] = '条件二'
                         
-                        intent = await parse_config_intent_with_llm(request.user_input, params, current_context)
+                        # 在调用LLM之前检测多参数，使用共用检测函数
+                        force_multiple_actions = detect_multiple_actions(request.user_input)
+                        
+                        intent = await parse_config_intent_with_llm(request.user_input, params, current_context, force_multiple_actions=force_multiple_actions)
                         
                         # 支持单个操作和多个操作
                         if "actions" in intent and isinstance(intent["actions"], list) and len(intent["actions"]) > 0:
+                            # 修正actions，确保它们应用到当前上下文的条件（如果用户没有明确指定条件）
+                            intent["actions"] = _normalize_actions_to_current_condition(
+                                intent["actions"], 
+                                request.user_input, 
+                                current_context
+                            )
+                            
                             # 多个参数更新：循环处理每个操作
                             parsed_by_llm = True
                             logger.info(f"[LLM解析成功-多参数] utterance: {request.user_input}, actions数量: {len(intent['actions'])}")
@@ -549,7 +838,7 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                         # 收集所有成功的响应消息，用于后续汇总
                                         if single_response.message:
                                             all_responses.append(single_response.message)
-                                        if response.state != "parameter_config":
+                                        if not _is_config_state(response.state):
                                             # 如果状态改变（如确认配置），停止处理后续操作
                                             break
                                     except Exception as e:
@@ -575,11 +864,9 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                 suggested_actions=response.suggested_actions
                             )
                         elif intent.get("action") and intent.get("action").strip():
-                            # 检查用户输入是否包含多个参数（通过逗号、顿号等分隔符判断）
+                            # 检查用户输入是否包含多个参数（使用共用检测函数）
                             # 如果包含多个参数，但LLM只返回了单个action，使用更明确的提示重新调用LLM
-                            has_multiple_params = bool(re.search(r'[，,]\s*(?:和|以及|，|,)', request.user_input) or 
-                                                       (request.user_input.count('，') > 0) or 
-                                                       (request.user_input.count(',') > 0))
+                            has_multiple_params = detect_multiple_actions(request.user_input)
                             
                             if has_multiple_params:
                                 # LLM可能没有正确识别多个参数，使用更明确的提示重新调用LLM
@@ -595,6 +882,12 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                     
                                     # 检查重新解析的结果
                                     if "actions" in retry_intent and isinstance(retry_intent["actions"], list) and len(retry_intent["actions"]) > 0:
+                                        # 修正actions，确保它们应用到当前上下文的条件（如果用户没有明确指定条件）
+                                        retry_intent["actions"] = _normalize_actions_to_current_condition(
+                                            retry_intent["actions"], 
+                                            request.user_input, 
+                                            current_context
+                                        )
                                         # LLM重新解析成功，识别到多个参数
                                         logger.info(f"[LLM重新解析成功-多参数] utterance: {request.user_input}, actions数量: {len(retry_intent['actions'])}")
                                         intent = retry_intent  # 使用重新解析的结果
@@ -611,6 +904,12 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                         
                                         # 检查fallback是否识别到多个参数
                                         if "actions" in fallback_result and isinstance(fallback_result["actions"], list) and len(fallback_result["actions"]) > 0:
+                                            # 修正actions，确保它们应用到当前上下文的条件（如果用户没有明确指定条件）
+                                            fallback_result["actions"] = _normalize_actions_to_current_condition(
+                                                fallback_result["actions"], 
+                                                request.user_input, 
+                                                current_context
+                                            )
                                             # 多个参数更新：循环处理每个操作
                                             logger.info(f"[规则匹配成功-多参数] utterance: {request.user_input}, actions数量: {len(fallback_result['actions'])}")
                                             response = None
@@ -634,7 +933,7 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                                         # 收集所有成功的响应消息，用于后续汇总
                                                         if single_response.message:
                                                             all_responses.append(single_response.message)
-                                                        if response.state != "parameter_config":
+                                                        if not _is_config_state(response.state):
                                                             # 如果状态改变（如确认配置），停止处理后续操作
                                                             break
                                                     except Exception as e:
@@ -667,6 +966,12 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                     
                                     # 检查fallback是否识别到多个参数
                                     if "actions" in fallback_result and isinstance(fallback_result["actions"], list) and len(fallback_result["actions"]) > 0:
+                                        # 修正actions，确保它们应用到当前上下文的条件（如果用户没有明确指定条件）
+                                        fallback_result["actions"] = _normalize_actions_to_current_condition(
+                                            fallback_result["actions"], 
+                                            request.user_input, 
+                                            current_context
+                                        )
                                         # 多个参数更新：循环处理每个操作
                                         logger.info(f"[规则匹配成功-多参数] utterance: {request.user_input}, actions数量: {len(fallback_result['actions'])}")
                                         response = None
@@ -690,7 +995,7 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                                     # 收集所有成功的响应消息，用于后续汇总
                                                     if single_response.message:
                                                         all_responses.append(single_response.message)
-                                                    if response.state != "parameter_config":
+                                                    if not _is_config_state(response.state):
                                                         # 如果状态改变（如确认配置），停止处理后续操作
                                                         break
                                                 except Exception as e:
@@ -720,6 +1025,12 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                             # 处理单个action的情况（可能是单参数，或者是多参数但LLM只识别到一个）
                             # 检查当前intent是否有actions数组（可能是重新解析后的结果）
                             if "actions" in intent and isinstance(intent["actions"], list) and len(intent["actions"]) > 0:
+                                # 修正actions，确保它们应用到当前上下文的条件（如果用户没有明确指定条件）
+                                intent["actions"] = _normalize_actions_to_current_condition(
+                                    intent["actions"], 
+                                    request.user_input, 
+                                    current_context
+                                )
                                 # 多个参数更新：循环处理每个操作
                                 parsed_by_llm = True
                                 logger.info(f"[LLM解析成功-多参数] utterance: {request.user_input}, actions数量: {len(intent['actions'])}")
@@ -744,7 +1055,7 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                             # 收集所有成功的响应消息，用于后续汇总
                                             if single_response.message:
                                                 all_responses.append(single_response.message)
-                                            if response.state != "parameter_config":
+                                            if not _is_config_state(response.state):
                                                 # 如果状态改变（如确认配置），停止处理后续操作
                                                 break
                                         except Exception as e:
@@ -783,6 +1094,12 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                             
                             # 检查是否是多个参数
                             if "actions" in fallback_result and isinstance(fallback_result["actions"], list) and len(fallback_result["actions"]) > 0:
+                                # 修正actions，确保它们应用到当前上下文的条件（如果用户没有明确指定条件）
+                                fallback_result["actions"] = _normalize_actions_to_current_condition(
+                                    fallback_result["actions"], 
+                                    request.user_input, 
+                                    current_context
+                                )
                                 # 多个参数更新：循环处理每个操作
                                 logger.info(f"[规则匹配成功-多参数] utterance: {request.user_input}, actions数量: {len(fallback_result['actions'])}")
                                 response = None
@@ -806,7 +1123,7 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                             # 收集所有成功的响应消息，用于后续汇总
                                             if single_response.message:
                                                 all_responses.append(single_response.message)
-                                            if response.state != "parameter_config":
+                                            if not _is_config_state(response.state):
                                                 # 如果状态改变（如确认配置），停止处理后续操作
                                                 break
                                         except Exception as e:
@@ -845,6 +1162,12 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                         
                         # 检查是否是多个参数
                         if "actions" in fallback_result and isinstance(fallback_result["actions"], list) and len(fallback_result["actions"]) > 0:
+                            # 修正actions，确保它们应用到当前上下文的条件（如果用户没有明确指定条件）
+                            fallback_result["actions"] = _normalize_actions_to_current_condition(
+                                fallback_result["actions"], 
+                                request.user_input, 
+                                current_context
+                            )
                             # 多个参数更新：循环处理每个操作
                             logger.info(f"[规则匹配成功-多参数] utterance: {request.user_input}, actions数量: {len(fallback_result['actions'])}")
                             response = None
@@ -868,7 +1191,7 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                         # 收集所有成功的响应消息，用于后续汇总
                                         if single_response.message:
                                             all_responses.append(single_response.message)
-                                        if response.state != "parameter_config":
+                                        if not _is_config_state(response.state):
                                             # 如果状态改变（如确认配置），停止处理后续操作
                                             break
                                     except Exception as e:

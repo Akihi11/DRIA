@@ -153,12 +153,17 @@ async def upload_file(file: UploadFile = File(...)):
                     logger.warning(f"处理通道 {ch.get('channel_name', 'unknown')} 时出错: {ch_err}")
                     continue
             
+            # 提取通道名列表作为 availableChannels（供功能计算等使用）
+            # 注意：必须按照上传文件的通道顺序保存，保持与原始文件列顺序一致
+            available_channels = [ch.get("channel_name") for ch in channels_data if ch.get("channel_name")]
+            
             config_content = {
                 "sourceFileId": file.filename,
                 "fileId": file_id,  # 保存原始的UUID格式file_id
                 "configFileName": "config_session.json",  # 保存配置文件名（时间戳格式）
                 "uploadTime": response_data["upload_time"],
                 "channels": channels_data,
+                "availableChannels": available_channels,  # 添加可用通道列表
                 "reportConfig": {
                     "sections": []
                 }
