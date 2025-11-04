@@ -87,6 +87,13 @@ class SteadyStateCalculator:
             return float(np.min(array))
         elif stat_lower in ['rms', '有效值', 'rootmeansquare']:
             return float(np.sqrt(np.mean(array ** 2)))
+        elif stat_lower in ['rateofchange', '变化率', '变化幅度']:
+            # 变化率：最大值 - 最小值
+            if len(values) < 2:
+                return 0.0
+            current_max = float(np.max(array))
+            current_min = float(np.min(array))
+            return current_max - current_min
         else:
             logger.warning(f"未知的统计类型: {statistic_type} (lower={stat_lower})，使用平均值代替")
             return float(np.mean(array))
@@ -174,7 +181,7 @@ class SteadyStateCalculator:
         return cond1_met, current_stat
     
     def check_condition2(self, current_time: float, data_point: Dict[str, float]) -> Tuple[bool, float]:
-        """检查条件2（变化率型）"""
+        """检查条件2（支持多种统计方法，默认变化率）"""
         # 检查配置是否存在
         if not self.config.trigger_logic.condition2:
             return False, 0.0
@@ -196,24 +203,27 @@ class SteadyStateCalculator:
         duration = cond2.get('duration_sec', 1.0)
         self.update_window(self.window_cond2, current_time, duration, data_point[channel])
         
-        # 如果窗口数据不足，返回False（至少需要2个点才能计算变化率）
-        if len(self.window_cond2) < 2:
+        # 获取统计方法，默认为变化率
+        statistic_type = cond2.get('statistic', 'RateOfChange')
+        # 如果统计方法是变化率，至少需要2个点；其他统计方法至少需要1个点
+        min_points = 2 if statistic_type.lower() in ['rateofchange', '变化率', '变化幅度'] else 1
+        
+        # 如果窗口数据不足，返回False
+        if len(self.window_cond2) < min_points:
             return False, 0.0
         
         # 提取窗口内的值
         window_values = [item[1] for item in self.window_cond2]
         
-        # 计算变化率（最大值 - 最小值）
-        current_max = float(np.max(window_values))
-        current_min = float(np.min(window_values))
-        current_change = current_max - current_min
+        # 使用统一的统计方法计算
+        current_stat = self.calculate_statistic(window_values, statistic_type)
         
         # 评估条件
         logic = cond2.get('logic', '>')
         threshold = cond2.get('threshold', 0.0)
-        cond2_met = self.evaluate_logic(current_change, logic, threshold)
+        cond2_met = self.evaluate_logic(current_stat, logic, threshold)
         
-        return cond2_met, current_change
+        return cond2_met, current_stat
     
     def calculate(self, data_stream: List[Tuple[float, Dict[str, float]]]) -> List[Dict[str, Any]]:
         """
@@ -241,8 +251,8 @@ class SteadyStateCalculator:
         if self.config.trigger_logic.condition2:
             cond2 = self.config.trigger_logic.condition2
             logger.info(f"[条件二配置] enabled={cond2.get('enabled', False)}, channel={cond2.get('channel')}, "
-                       f"duration={cond2.get('duration_sec')}, logic={cond2.get('logic')}, "
-                       f"threshold={cond2.get('threshold')}")
+                       f"statistic={cond2.get('statistic', 'RateOfChange')}, duration={cond2.get('duration_sec')}, "
+                       f"logic={cond2.get('logic')}, threshold={cond2.get('threshold')}")
         else:
             logger.warning("[条件二配置] 未配置")
         

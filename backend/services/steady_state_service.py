@@ -99,7 +99,7 @@ class SteadyStateService:
                 condition2 = {
                     'enabled': True,
                     'channel': condition.get('channel'),
-                    'statistic': 'RateOfChange',
+                    'statistic': self._translate_statistic(condition.get('statistic', 'RateOfChange')),
                     'duration_sec': condition.get('duration', 1.0),
                     'logic': self._translate_logic(condition.get('logic', '<')),
                     'threshold': condition.get('threshold', 0.0)
@@ -127,11 +127,17 @@ class SteadyStateService:
             '最大值': 'Max',
             '最小值': 'Min',
             '有效值': 'RMS',
+            '变化率': 'RateOfChange',
+            '变化幅度': 'RateOfChange',
             'Average': 'Average',
             'Max': 'Max',
             'Min': 'Min',
-            'RMS': 'RMS'
+            'RMS': 'RMS',
+            'RateOfChange': 'RateOfChange'
         }
+        # 如果未找到，且原值是RateOfChange相关，返回RateOfChange；否则返回Average
+        if statistic and ('rate' in statistic.lower() or 'change' in statistic.lower() or '变化' in statistic):
+            return translation.get(statistic, 'RateOfChange')
         return translation.get(statistic, 'Average')
     
     def _translate_logic(self, logic: str) -> str:

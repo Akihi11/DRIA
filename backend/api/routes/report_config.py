@@ -260,6 +260,10 @@ class ReportConfigManager:
                 return '最小值'
             elif '平均' in action:
                 return '平均值'
+            elif '变化' in action or '变化率' in action or '变化幅度' in action:
+                return '变化率'
+            elif '有效值' in action or 'rms' in action.lower():
+                return '有效值'
         elif field_name == 'logic':
             if '大于' in action:
                 return '大于'
@@ -494,10 +498,10 @@ class ReportConfigManager:
                         'enabled': True,
                         'channel': default_channel,
                         'type': '变化幅度',
-                        'statistic': '变化率',  # 固定值：变化率（不可修改）
+                        'statistic': '变化率',  # 默认值：变化率（可修改为其他统计方法）
                         'duration_sec': 1,  # 默认值：1s
                         'logic': '>',  # 默认值：>
-                        'threshold': 100  # 默认值：200
+                        'threshold': 100  # 默认值：100
                     }
                 }
                 # 新增：生成条件描述params['triggerDesc']
@@ -593,7 +597,7 @@ class ReportConfigManager:
                         f"{_build_condition_params_message(cond2, '条件二')}\n\n"
                         f"【可修改的参数】：\n"
                         f"- 监控通道（channel）：可从已选择的通道中选择\n"
-                        f"- 统计方法（statistic）：固定为\"变化率\"，不可修改\n"
+                        f"- 统计方法（statistic）：默认\"变化率\"，可改为 平均值/最大值/最小值/有效值/变化率\n"
                         f"- 持续时长（duration_sec）：单位秒\n"
                         f"- 判断依据（logic）：可改为 大于/小于/大于等于/小于等于\n"
                         f"- 阈值（threshold）：数值\n\n"
@@ -625,7 +629,7 @@ class ReportConfigManager:
                         f"- 阈值（threshold）：数值\n\n"
                         f"条件二：\n"
                         f"- 监控通道（channel）：可从已选择的通道中选择\n"
-                        f"- 统计方法（statistic）：固定为\"变化率\"，不可修改\n"
+                        f"- 统计方法（statistic）：默认\"变化率\"，可改为 平均值/最大值/最小值/有效值/变化率\n"
                         f"- 持续时长（duration_sec）：单位秒\n"
                         f"- 判断依据（logic）：可改为 大于/小于/大于等于/小于等于\n"
                         f"- 阈值（threshold）：数值\n\n"
@@ -652,14 +656,14 @@ class ReportConfigManager:
             # 允许编辑参数列表（包括监控通道）
             display_channels = params.get('displayChannels', [])
             def _msg_for_condition(cond: dict, cond_name: str):
-                # 判断统计方法是否可修改（条件二的统计方法固定为"变化率"，不可修改）
                 statistic = cond.get('statistic', '')
-                statistic_modifiable = not (cond_name == '条件二' and statistic == '变化率')
-                statistic_label = f"{statistic} (不可修改)" if not statistic_modifiable else statistic
+                # 如果条件二没有设置statistic，默认显示"变化率"
+                if cond_name == '条件二' and not statistic:
+                    statistic = '变化率'
                 
                 return f"\n【当前为{cond_name}，参数如下】\n" \
                        f"- 监控通道: {cond.get('channel', '')} (可选通道: {', '.join(display_channels)})\n" \
-                       f"- 统计方法: {statistic_label}\n" \
+                       f"- 统计方法: {statistic}\n" \
                        f"- 持续时长(秒): {cond.get('duration_sec', '')}\n" \
                        f"- 判断依据: {cond.get('logic', '')}\n" \
                        f"- 阈值: {cond.get('threshold', '')}"
@@ -840,15 +844,6 @@ class ReportConfigManager:
                             matched = k in action
                         
                         if matched:
-                            # 条件二的统计方法是固定的"变化率"，不可修改
-                            if v == 'statistic':
-                                return ConfigResponse(
-                                    session_id=session_id,
-                                    state=ConfigState.PARAMETER_CONFIG,
-                                    message=f"条件二的统计方法是固定的\"变化率\"，不可修改。{_msg_for_condition(condition, '条件二')}\n您可以修改其他参数，例如：监控通道、持续时长、判断依据、阈值。",
-                                    suggested_actions=[],
-                                    current_params=params
-                                )
                             # 优先使用value参数（LLM解析出的值），如果value为None，尝试从action字符串中提取
                             extracted_value = None
                             if value is not None:
@@ -1155,15 +1150,6 @@ class ReportConfigManager:
                                 matched = k in action_for_match
                             
                             if matched:
-                                # 条件二的统计方法是固定的"变化率"，不可修改
-                                if v == 'statistic':
-                                    return ConfigResponse(
-                                        session_id=session_id,
-                                        state=ConfigState.PARAMETER_CONFIG,
-                                        message=f"条件二的统计方法是固定的\"变化率\"，不可修改。{_msg_for_condition(condition, '条件二')}\n您可以修改其他参数，例如：监控通道、持续时长、判断依据、阈值。",
-                                        suggested_actions=[],
-                                        current_params=params
-                                    )
                                 # 优先使用value参数（LLM解析出的值），如果value为None，尝试从action字符串中提取
                                 extracted_value = None
                                 if value is not None:
