@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan context manager"""
+    import asyncio
+    
     # 启动时执行的代码
     logger.info("AI Chat API starting up (Python 3.12 compatible)...")
     logger.info(f"Python version: {sys.version}")
@@ -53,7 +55,12 @@ async def lifespan(app: FastAPI):
     yield
     
     # 关闭时执行的代码
-    logger.info("AI Chat API shutting down...")
+    try:
+        logger.info("AI Chat API shutting down...")
+    except asyncio.CancelledError:
+        # 在关闭过程中，CancelledError 是正常的，不需要记录为错误
+        logger.debug("Server shutdown cancelled (normal during shutdown)")
+        raise  # 重新抛出以正确传播取消信号
 
 
 # Create FastAPI application

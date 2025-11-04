@@ -124,10 +124,7 @@ jspm_packages/
 # Runtime artifacts (cleaned up)
 logs/
 exports/
-tests/
 uploads/
-model/
-services/
 controllers/
 constants/
 common/
