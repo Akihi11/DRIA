@@ -267,6 +267,7 @@ def _is_explicit_button_action(user_input: str) -> bool:
         r'^确认$',
         r'^完成$',
         r'^好了$',
+        r'^ok$',
         r'^下一步$',
         r'^下一步骤$',
         r'^继续$',
