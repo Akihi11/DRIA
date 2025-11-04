@@ -5,35 +5,28 @@
       "statistic": "平均值",
       "duration": 1,
       "logic": ">",
-      "threshold": 1500 
+      "threshold": 1000 
     },
     "startup_time": {
       "channel": "Ng",
       "statistic": "平均值",
       "duration": 1,
       "logic": ">",
-      "threshold": 100
+      "threshold": 200
     },
     "ignition_time": {
-      "channel": "滑油压力",
+      "channel": "排气温度",
       "type": "difference",
       "duration": 10,
       "logic": ">",
-      "threshold": 200
+      "threshold": 150
     },
     "rundown_ng": {
       "channel": "Ng",
       "statistic": "平均值",
       "duration": 1,
-      "threshold1": 2500, 
-      "threshold2": 500
-    },
-    "rundown_np": {
-      "channel": "Np",
-      "statistic": "平均值",
-      "duration": 1,
-      "threshold1": 2500, 
-      "threshold2": 500
+      "threshold1": 2200, 
+      "threshold2": 300
     }
   }
 }

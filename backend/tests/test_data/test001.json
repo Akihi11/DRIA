@@ -5,7 +5,7 @@
       "statistic": "平均值",
       "duration": 1,
       "logic": ">",
-      "threshold": 1500 
+      "threshold": 2000 
     },
     "startup_time": {
       "channel": "Ng",
@@ -25,15 +25,15 @@
       "channel": "Ng",
       "statistic": "平均值",
       "duration": 1,
-      "threshold1": 2500, 
-      "threshold2": 500
+      "threshold1": 1800, 
+      "threshold2": 400
     },
     "rundown_np": {
       "channel": "Np",
       "statistic": "平均值",
       "duration": 1,
-      "threshold1": 2500, 
-      "threshold2": 500
+      "threshold1": 1800, 
+      "threshold2": 400
     }
   }
 }

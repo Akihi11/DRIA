@@ -9,12 +9,19 @@ import json
 import pandas as pd
 
 # --- 强制日志配置 [开始] ---
-# 必须在 "from backend..." 之前
-logging.getLogger().setLevel(logging.DEBUG)
+
+# 1. 把这里从 DEBUG 改回 INFO
+logging.getLogger().setLevel(logging.INFO) 
+
+# (可选) 清理掉所有旧的、可能在捣乱的处理器
 for handler in logging.getLogger().handlers[:]:
     logging.getLogger().removeHandler(handler)
+
+# 添加一个新的、干净的处理器
 handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.DEBUG)
+
+# 2. 这里也从 DEBUG 改回 INFO
+handler.setLevel(logging.INFO) 
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logging.getLogger().addHandler(handler)
@@ -38,9 +45,9 @@ except ImportError:
 
 # 测试文件路径
 TEST_DATA_DIR = project_root / "backend" / "tests" / "test_data"
-DEFAULT_TEST_DATA_CSV = TEST_DATA_DIR / "test1.csv"
-DEFAULT_TEST_CONFIG_JSON = TEST_DATA_DIR / "test1.json"
-DEFAULT_TEST_OUTPUT_EXCEL = TEST_DATA_DIR / "test1.xlsx"
+DEFAULT_TEST_DATA_CSV = TEST_DATA_DIR / "test.csv"
+DEFAULT_TEST_CONFIG_JSON = TEST_DATA_DIR / "test001.json"
+DEFAULT_TEST_OUTPUT_EXCEL = TEST_DATA_DIR / "test.xlsx"
 
 
 def run_test(config_path=None, data_path=None, output_path=None):

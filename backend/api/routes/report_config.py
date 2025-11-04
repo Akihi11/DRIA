@@ -783,7 +783,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.CONFIRMATION,
                         message=self.get_confirmation_message(report_type, params),
-                        suggested_actions=['确认生成', '修改配置', '取消配置'],
+                        suggested_actions=[],
                         current_params=params
                     )
                 else:
@@ -1296,7 +1296,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.CONFIRMATION,
                     message=f"已选择 {selected_channel} 作为判断通道。\n\n" + self.get_confirmation_message(report_type, params),
-                    suggested_actions=['确认生成', '修改配置', '取消配置'],
+                    suggested_actions=[],
                     current_params=params
                 )
             else:
@@ -2085,7 +2085,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.CONFIRMATION,
                     message="功能计算配置已完成。\n\n" + self.get_confirmation_message(report_type, params),
-                    suggested_actions=['确认生成', '修改配置', '取消配置'],
+                    suggested_actions=[],
                     current_params=params
                 )
             else:
@@ -2450,7 +2450,7 @@ class ReportConfigManager:
         elif state == ConfigState.SELECT_JUDGE_CHANNEL:
             return []  # 通过自然语言选择，不使用按钮
         elif state == ConfigState.CONFIRMATION:
-            return ['确认生成', '修改配置', '取消配置']
+            return []
         else:
             return []
     
