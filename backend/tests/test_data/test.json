@@ -25,7 +25,7 @@
       "channel": "Ng",
       "statistic": "平均值",
       "duration": 1,
-      "threshold1": 2600,
+      "threshold1": 2450,
       "threshold2": 1000
     },
     "rundown_np": {

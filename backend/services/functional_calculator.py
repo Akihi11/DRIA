@@ -2,8 +2,10 @@
 功能计算汇总表 - 状态机实现 (库文件)
 根据配置文件识别升速-降速循环并计算关键指标
 
-V2.8 - 修复了RAMPING_UP->RAMPING_DOWN的切换逻辑，
-       现在基于 T_Baseline 条件结束，而不是 T_Start 条件。
+V3.1 - 最终修复。
+       - 修复了 V2.8 的 RAMPING_UP->RAMPING_DOWN 切换逻辑。
+       - 现在通过检测 T_Baseline 通道的“峰值已过”（开始下降）
+         来切换状态，确保能正确捕获 T1。
 """
 import numpy as np
 from collections import deque
@@ -37,10 +39,14 @@ class SlidingWindow:
     
     def update(self, timestamp: float, value: float):
         """更新窗口，移除过期数据，添加新数据"""
-        cutoff_time = timestamp - self.duration
-        while self.window and self.window[0][0] < cutoff_time:
+        # (V2.9 修复)
+        cutoff_time_exclusive = timestamp - self.duration
+        
+        while self.window and self.window[0][0] <= cutoff_time_exclusive:
             self.window.popleft()
+            
         self.window.append((timestamp, value))
+
     
     def calculate_statistic(self) -> Optional[float]:
         """计算窗口内的统计值"""
@@ -92,6 +98,11 @@ class FunctionalCalculator:
         # (V2.6 修复)
         self._startup_condition_was_true = False
 
+        # --- (!!!) V3.1 修复：增加“峰值检测”逻辑 ---
+        self._baseline_channel_key = None
+        self._last_baseline_value = -np.inf # 必须初始化得非常小
+        # --- (修复结束) ---
+
         if config.time_base:
             channel = config.time_base.get('channel')
             statistic = config.time_base.get('statistic', '平均值')
@@ -99,6 +110,7 @@ class FunctionalCalculator:
             key = f"time_base_{channel}"
             self.windows[key] = SlidingWindow(duration, statistic)
             self._window_keys_to_channels.append((key, channel))
+            self._baseline_channel_key = key # (V3.1) 记住T_Baseline的窗口key
         
         if config.startup_time:
             channel = config.startup_time.get('channel')
@@ -357,7 +369,9 @@ class FunctionalCalculator:
             window.window.clear()
         for window in self.difference_windows.values():
             window.window.clear()
-        # (修复结束)
+        
+        # (V3.1 修复)
+        self._last_baseline_value = -np.inf
 
         self.excel_row_index += 1
         self.current_cycle_data = {}
@@ -372,15 +386,14 @@ class FunctionalCalculator:
             # 1. 统一更新所有窗口
             self._update_all_windows(timestamp, data_point)
             
-            # (V2.6 修复)
             is_startup_met = self.is_startup_time_met()
             
-            # (!!!) V2.8 修复：我们还需要 *实时* 检查 T_Baseline 的状态
+            # (V2.8 修复)
             is_baseline_met = self.is_time_base_met()
             
             # 2. 状态机逻辑
             if self.state == "IDLE":
-                # 只有当 "startup" 条件从 False 变为 True 时，才触发
+                # (V2.6 修复)
                 if is_startup_met and not self._startup_condition_was_true:
                     self.current_cycle_data['T_Start'] = timestamp
                     self.state = "RAMPING_UP"
@@ -388,7 +401,7 @@ class FunctionalCalculator:
             
             elif self.state == "RAMPING_UP":
                 
-                # --- (!!!) 核心修复 V2.8 (开始) ---
+                # --- (!!!) 核心修复 V3.1 (开始) ---
                 
                 # 1. 捕获升速事件
                 if 'T_Start' not in self.current_cycle_data and is_startup_met:
@@ -403,21 +416,28 @@ class FunctionalCalculator:
                     logger.info(f"[RAMPING_UP] T_Ignition={timestamp:.3f}s")
                 
                 # 2. 检查是否切换到 RAMPING_DOWN
-                #    T1的检查 *完全移除*
-                #    唯一的切换条件是 T_Baseline 条件结束 (峰值已过)
-                
-                # 必须先确保 T_Baseline 至少被抓到过
+                #    必须先确保 T_Baseline 至少被抓到过
                 if 'T_Baseline' in self.current_cycle_data:
-                    # 'is_baseline_met' 已经在循环顶部计算
-                    if (not is_baseline_met): 
+                    
+                    # (V3.1) 获取 T_Baseline 窗口的 *当前* 值
+                    current_baseline_value = self.windows[self._baseline_channel_key].calculate_statistic()
+                    if current_baseline_value is None: current_baseline_value = -np.inf
+                    
+                    # 检查是否开始降速 (当前值 < 上一个值)
+                    is_decreasing = (current_baseline_value < self._last_baseline_value)
+                    
+                    if is_decreasing:
                         self.state = "RAMPING_DOWN"
-                        logger.info(f"[RAMPING_UP->RAMPING_DOWN] Baseline条件结束. T={timestamp:.3f}s")
-                
-                # --- (!!!) 核心修复 V2.8 (结束) ---
+                        logger.info(f"[RAMPING_UP->RAMPING_DOWN] Peak detected. T={timestamp:.3f}s")
+                    
+                    # 更新 "上一个值"
+                    self._last_baseline_value = current_baseline_value
+
+                # --- (!!!) 核心修复 V3.1 (结束) ---
             
             elif self.state == "RAMPING_DOWN":
                 
-                # (V2.7 修复) T1的捕获逻辑 *完全* 在这里
+                # (V2.7 修复)
                 
                 # 捕获Ng T1
                 if 'T_Ng_T1' not in self.current_cycle_data and self.is_ng_rundown_T1_met():
@@ -484,7 +504,7 @@ class FunctionalCalculator:
         
         for row_data in self.results:
             
-            # (V2.3 版修改)
+            # (V.2.3 版修改)
             def format_value(value):
                 if value is None:
                     return ""

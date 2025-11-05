@@ -124,6 +124,17 @@ class ApiService {
     return response.data
   }
 
+  // Download functional report
+  async downloadFunctionalReport(reportId: string): Promise<Blob> {
+    const response: AxiosResponse<Blob> = await this.client.get(
+      `/config-dialogue/reports/functional/${reportId}/download`,
+      {
+        responseType: 'blob',
+      }
+    )
+    return response.data
+  }
+
   // Get file info
   async getFileInfo(fileId: string): Promise<FileUploadResponse> {
     const response: AxiosResponse<FileUploadResponse> = await this.client.get(

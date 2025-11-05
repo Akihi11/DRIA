@@ -35,13 +35,28 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   const handleDownloadReport = async (reportId: string) => {
     setDownloading(true)
     try {
-      const blob = await apiService.downloadSteadyStateReport(reportId)
+      // 从 metadata 中获取报表类型
+      const reportType = message.metadata?.currentParams?.report_type || 
+                         message.metadata?.config?.report_type || 
+                         '稳定状态' // 默认为稳定状态
+      
+      // 根据报表类型选择下载方法
+      let blob: Blob
+      let filename: string
+      
+      if (reportType === '功能计算') {
+        blob = await apiService.downloadFunctionalReport(reportId)
+        filename = `functional_report_${reportId}.xlsx`
+      } else {
+        blob = await apiService.downloadSteadyStateReport(reportId)
+        filename = `steady_state_report_${reportId}.xlsx`
+      }
       
       // Create download link
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `steady_state_report_${reportId}.xlsx`
+      link.download = filename
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)

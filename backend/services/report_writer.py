@@ -4,6 +4,7 @@
 import openpyxl
 from openpyxl.chart import ScatterChart, Reference, Series
 from openpyxl.chart.label import DataLabelList
+from openpyxl.styles import Font, Alignment, PatternFill
 from pathlib import Path
 from typing import List, Dict, Any
 import logging
@@ -42,6 +43,13 @@ class ReportWriter:
         # 写入表头
         headers = ['时间'] + display_channels
         self.worksheet.append(headers)
+        
+        # 格式化表头：居中、加粗、背景色
+        for col_idx in range(1, len(headers) + 1):
+            cell = self.worksheet.cell(row=1, column=col_idx)
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
         
         # 写入数据（确保所有数据都是数值格式）
         for snapshot in snapshots:

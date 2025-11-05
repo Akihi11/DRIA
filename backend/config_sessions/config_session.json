@@ -1,8 +1,8 @@
 {
   "sourceFileId": "Simulated_Data.csv",
-  "fileId": "abd07567-6848-40b7-a0b0-58cf2eb9869d",
+  "fileId": "13c4a6b5-752d-4192-bf29-6b3ae2ae6fc3",
   "configFileName": "config_session.json",
-  "uploadTime": "2025-11-04T22:10:18.236812",
+  "uploadTime": "2025-11-05T17:33:06.860265",
   "channels": [
     {
       "channel_name": "系统电流",
@@ -105,33 +105,50 @@
   ],
   "reportConfig": {
     "sections": [],
-    "stableState": {
-      "displayChannels": [
-        "系统电流",
-        "系统电压",
-        "滑油压力",
-        "排气温度",
-        "Ng",
-        "Np"
-      ],
-      "conditions": [
-        {
-          "type": "amplitude_change",
-          "channel": "系统电流",
-          "duration": 1,
-          "logic": ">",
-          "threshold": 2000
-        }
-      ],
-      "conditionLogic": "Cond2_Only"
+    "functionalCalc": {
+    "time_base": {
+      "channel": "Ng",
+      "statistic": "平均值",
+      "duration": 1,
+      "logic": ">",
+      "threshold": 2000
+    },
+    "startup_time": {
+      "channel": "Ng",
+      "statistic": "最大值",
+      "duration": 1,
+      "logic": ">",
+      "threshold": 100
+    },
+    "ignition_time": {
+      "channel": "滑油压力",
+      "type": "difference",
+      "duration": 15,
+      "logic": ">",
+      "threshold": 300
+    },
+    "rundown_ng": {
+      "channel": "Ng",
+      "statistic": "平均值",
+      "duration": 1,
+      "threshold1": 2450,
+      "threshold2": 1000
+    },
+    "rundown_np": {
+      "channel": "Np",
+      "statistic": "平均值",
+      "duration": 1,
+      "threshold1": 2400,
+      "threshold2": 800
     }
+   }
   },
-  "reportType": "稳态分析",
+  "reportType": "功能计算",
   "history": [
     {
-      "timestamp": "2025-11-04T22:10:20.185784",
+      "timestamp": "2025-11-05T17:33:09.061567",
       "action": "set_report_type",
-      "value": "稳态分析"
+      "value": "功能计算"
     }
   ]
 }
