@@ -1,8 +1,8 @@
 {
   "sourceFileId": "Simulated_Data2.csv",
-  "fileId": "b57da530-da9d-474c-bcb4-2f762ed52043",
+  "fileId": "599ae183-e084-4cb2-bf97-706fef1ed3cc",
   "configFileName": "config_session.json",
-  "uploadTime": "2025-11-07T14:08:25.773455",
+  "uploadTime": "2025-11-07T15:05:47.736462",
   "channels": [
     {
       "channel_name": "系统电流",
@@ -104,6 +104,51 @@
     "Np"
   ],
   "reportConfig": {
-    "sections": []
-  }
+    "sections": [],
+    "functionalCalc": {
+      "time_base": {
+        "channel": "Ng",
+        "statistic": "平均值",
+        "duration": 1,
+        "logic": ">",
+        "threshold": 100
+      },
+      "startup_time": {
+        "channel": "Ng",
+        "statistic": "平均值",
+        "duration": 1,
+        "logic": ">",
+        "threshold": 100
+      },
+      "ignition_time": {
+        "channel": "系统电流",
+        "type": "difference",
+        "duration": 1,
+        "logic": ">",
+        "threshold": 100
+      },
+      "rundown_ng": {
+        "channel": "Ng",
+        "statistic": "平均值",
+        "duration": 1,
+        "threshold1": 200,
+        "threshold2": 100
+      },
+      "rundown_np": {
+        "channel": "Np",
+        "statistic": "平均值",
+        "duration": 1,
+        "threshold1": 200,
+        "threshold2": 100
+      }
+    }
+  },
+  "reportType": "功能计算",
+  "history": [
+    {
+      "timestamp": "2025-11-07T15:05:48.901328",
+      "action": "set_report_type",
+      "value": "功能计算"
+    }
+  ]
 }

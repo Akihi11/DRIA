@@ -1772,7 +1772,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.RUNDOWN_NG_CONFIG,
                     message=f"Ng余转时间的监控通道固定为Ng，不可修改。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels) + "\n您可以修改其他参数，例如：统计方法、持续时长、判断依据、高阈值、低阈值。",
-                    suggested_actions=[],
+                    suggested_actions=['返回上一步', '下一步'],
                     current_params=params
                 )
             
@@ -1795,7 +1795,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.RUNDOWN_NG_CONFIG,
                             message=f"已更改高阈值为 {extracted_value}。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels),
-                            suggested_actions=[],
+                            suggested_actions=['返回上一步', '下一步'],
                             current_params=params
                         )
                 
@@ -1813,7 +1813,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.RUNDOWN_NG_CONFIG,
                             message=f"已更改低阈值为 {extracted_value}。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels),
-                            suggested_actions=[],
+                            suggested_actions=['返回上一步', '下一步'],
                             current_params=params
                         )
                 
@@ -2496,15 +2496,15 @@ class ReportConfigManager:
                     'channel': default_ng,
                     'statistic': '平均值',
                     'duration': 1,
-                    'threshold1': 100,
-                    'threshold2': 200
+                    'threshold1': 200,
+                    'threshold2': 100
                 },
                 'rundown_np': {
                     'channel': default_np,
                     'statistic': '平均值',
                     'duration': 1,
-                    'threshold1': 100,
-                    'threshold2': 200
+                    'threshold1': 200,
+                    'threshold2': 100
                 }
             }
         elif report_type == ReportType.STATUS_EVAL:
@@ -2584,7 +2584,7 @@ class ReportConfigManager:
 {channels_text}
 【当前默认参数】：
 - 监控通道: {ignition_time.get('channel', 'Pressure(kPa)')}
-- 计算类型: {ignition_time.get('type', 'difference')}（差值计算）（不可修改）
+- 计算类型: 差值计算（不可修改）
 - 持续时长: {ignition_time.get('duration', 1)}秒
 - 判断依据: {ignition_time.get('logic', '>')}
 - 阈值: {ignition_time.get('threshold', 100)}
@@ -2596,7 +2596,7 @@ class ReportConfigManager:
 - "把阈值改为600"
 - "持续时长改为15秒"
 
-注意：计算类型（差值计算）不可修改。
+注意：计算类型：差值计算（不可修改）。
 
 修改完成后输入"确认"或"下一步"继续。"""
             elif state == ConfigState.RUNDOWN_NG_CONFIG:
@@ -2607,8 +2607,8 @@ class ReportConfigManager:
 - 监控通道: {rundown_ng.get('channel', 'Ng')}（不可修改）
 - 统计方法: {rundown_ng.get('statistic', '平均值')}
 - 持续时长: {rundown_ng.get('duration', 1)}秒
-- 高阈值: {rundown_ng.get('threshold1', 100)}
-- 低阈值: {rundown_ng.get('threshold2', 200)}
+- 高阈值: {rundown_ng.get('threshold1', 200)}
+- 低阈值: {rundown_ng.get('threshold2', 100)}
 
 说明："Ng余转时间"是在降速阶段计算的，系统会找到第一次低于高阈值（T1）和第一次低于低阈值（T2）的时刻，然后计算T2-T1的时长。
 
@@ -2627,8 +2627,8 @@ class ReportConfigManager:
 - 监控通道: {rundown_np.get('channel', 'Np')}（不可修改）
 - 统计方法: {rundown_np.get('statistic', '平均值')}
 - 持续时长: {rundown_np.get('duration', 1)}秒
-- 高阈值: {rundown_np.get('threshold1', 6000)}
-- 低阈值: {rundown_np.get('threshold2', 500)}
+- 高阈值: {rundown_np.get('threshold1', 200)}
+- 低阈值: {rundown_np.get('threshold2', 100)}
 
 说明："Np余转时间"是在降速阶段计算的，系统会找到第一次低于高阈值（T1）和第一次低于低阈值（T2）的时刻，然后计算T2-T1的时长。
 
@@ -2707,32 +2707,33 @@ class ReportConfigManager:
             if 'threshold2' in item:
                 lines.append(f"  阈值2: {item['threshold2']}")
             if 'type' in item:
-                lines.append(f"  计算类型: {item['type']}")
+                type_display = "差值计算" if item['type'] == 'difference' else item['type']
+                lines.append(f"  计算类型: {type_display}")
             
             return '\n'.join(lines) if len(lines) > 1 else f"{name}：未设置"
         
-        config_lines = ["配置确认：", ""]
+        config_lines = ["**配置确认**：", ""]
         if time_base:
-            config_lines.append(format_config_item(time_base, '时间（基准时刻）'))
+            config_lines.append(format_config_item(time_base, '**时间（基准时刻）**'))
             config_lines.append("")
         if startup_time:
-            config_lines.append(format_config_item(startup_time, '启动时间'))
+            config_lines.append(format_config_item(startup_time, '**启动时间**'))
             config_lines.append("")
         if ignition_time:
-            config_lines.append(format_config_item(ignition_time, '点火时间'))
+            config_lines.append(format_config_item(ignition_time, '**点火时间**'))
             config_lines.append("")
         if rundown_ng:
-            config_lines.append(format_config_item(rundown_ng, 'Ng余转时间'))
+            config_lines.append(format_config_item(rundown_ng, '**Ng余转时间**'))
             config_lines.append("")
         if rundown_np:
-            config_lines.append(format_config_item(rundown_np, 'Np余转时间'))
+            config_lines.append(format_config_item(rundown_np, '**Np余转时间**'))
         config_lines.append("")
         
         # 移除最后一个空行
         if config_lines and config_lines[-1] == "":
             config_lines.pop()
         
-        config_lines.append("\n\n请点击上方完成配置按钮进行报表生成。")
+        config_lines.append("\n\n请点击上方 **完成配置** 按钮进行报表生成。")
         
         return '\n'.join(config_lines)
 
@@ -3003,7 +3004,7 @@ class ReportConfigManager:
 {channels_text}
 【当前参数】：
 - 监控通道: {ignition_time.get('channel', 'Pressure(kPa)')}
-- 计算类型: {ignition_time.get('type', 'difference')}（差值计算）（不可修改）
+- 计算类型: 差值计算（不可修改）
 - 持续时长: {ignition_time.get('duration', 1)}秒
 - 判断依据: {ignition_time.get('logic', '>')}
 - 阈值: {ignition_time.get('threshold', 100)}
@@ -3015,7 +3016,7 @@ class ReportConfigManager:
 - "把阈值改为600"
 - "持续时长改为5秒"
 
-注意：计算类型（差值计算）不可修改。
+注意：计算类型：差值计算（不可修改）。
 
 修改完成后输入"确认"或"下一步"继续。"""
     
@@ -3026,7 +3027,7 @@ class ReportConfigManager:
             channels_text = f"\n【可用通道】：{', '.join(available_channels)}\n"
         threshold_text = ""
         if 'threshold1' in rundown_ng or 'threshold2' in rundown_ng:
-            threshold_text = f"- 高阈值: {rundown_ng.get('threshold1', 100)}\n- 低阈值: {rundown_ng.get('threshold2', 200)}\n"
+            threshold_text = f"- 高阈值: {rundown_ng.get('threshold1', 200)}\n- 低阈值: {rundown_ng.get('threshold2', 100)}\n"
         else:
             threshold_text = f"- 阈值: {rundown_ng.get('threshold', 100)}\n"
         return f"""功能计算配置 - 第4步：配置"Ng余转时间"
@@ -3055,7 +3056,7 @@ class ReportConfigManager:
             channels_text = f"\n【可用通道】：{', '.join(available_channels)}\n"
         threshold_text = ""
         if 'threshold1' in rundown_np or 'threshold2' in rundown_np:
-            threshold_text = f"- 高阈值: {rundown_np.get('threshold1', 100)}\n- 低阈值: {rundown_np.get('threshold2', 200)}\n"
+            threshold_text = f"- 高阈值: {rundown_np.get('threshold1', 200)}\n- 低阈值: {rundown_np.get('threshold2', 100)}\n"
         else:
             threshold_text = f"- 阈值: {rundown_np.get('threshold', 100)}\n"
         return f"""功能计算配置 - 第5步：配置"Np余转时间"
@@ -3144,8 +3145,8 @@ class ReportConfigManager:
                     "channel": rundown_ng.get('channel', 'Ng'),
                     "statistic": rundown_ng.get('statistic', '平均值'),
                     "duration": rundown_ng.get('duration', 1),
-                    "threshold1": rundown_ng.get('threshold1', 8000),
-                    "threshold2": rundown_ng.get('threshold2', 1000)
+                    "threshold1": rundown_ng.get('threshold1', 200),
+                    "threshold2": rundown_ng.get('threshold2', 100)
                 }
             
             # 保存Np余转时间配置
@@ -3155,8 +3156,8 @@ class ReportConfigManager:
                     "channel": rundown_np.get('channel', 'Np'),
                     "statistic": rundown_np.get('statistic', '平均值'),
                     "duration": rundown_np.get('duration', 1),
-                    "threshold1": rundown_np.get('threshold1', 6000),
-                    "threshold2": rundown_np.get('threshold2', 500)
+                    "threshold1": rundown_np.get('threshold1', 200),
+                    "threshold2": rundown_np.get('threshold2', 100)
                 }
             
             # 保存displayChannels
@@ -3379,9 +3380,9 @@ class ReportConfigManager:
                 rundown_ng_config['threshold'] = rundown_ng.get('threshold', 100)
             else:
                 if 'threshold1' in rundown_ng:
-                    rundown_ng_config['threshold1'] = rundown_ng.get('threshold1', 100)
+                    rundown_ng_config['threshold1'] = rundown_ng.get('threshold1', 200)
                 if 'threshold2' in rundown_ng:
-                    rundown_ng_config['threshold2'] = rundown_ng.get('threshold2', 200)
+                    rundown_ng_config['threshold2'] = rundown_ng.get('threshold2', 100)
             function_calc['rundown_ng'] = rundown_ng_config
         
         # 构建Np余转时间配置
@@ -3406,9 +3407,9 @@ class ReportConfigManager:
                 rundown_np_config['threshold'] = rundown_np.get('threshold', 100)
             else:
                 if 'threshold1' in rundown_np:
-                    rundown_np_config['threshold1'] = rundown_np.get('threshold1', 100)
+                    rundown_np_config['threshold1'] = rundown_np.get('threshold1', 200)
                 if 'threshold2' in rundown_np:
-                    rundown_np_config['threshold2'] = rundown_np.get('threshold2', 200)
+                    rundown_np_config['threshold2'] = rundown_np.get('threshold2', 100)
             function_calc['rundown_np'] = rundown_np_config
         
         # 添加displayChannels

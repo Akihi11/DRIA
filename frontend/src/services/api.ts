@@ -127,7 +127,7 @@ class ApiService {
   // Download functional report
   async downloadFunctionalReport(reportId: string): Promise<Blob> {
     const response: AxiosResponse<Blob> = await this.client.get(
-      `/config-dialogue/reports/functional/${reportId}/download`,
+      `/reports/functional/${reportId}/download`,
       {
         responseType: 'blob',
       }

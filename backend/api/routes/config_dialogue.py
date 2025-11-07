@@ -1627,32 +1627,3 @@ async def get_all_sessions():
     except Exception as e:
         logger.error(f"获取会话信息失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取会话信息失败: {str(e)}")
-
-@router.get("/reports/functional/{report_id}/download", summary="下载功能计算报表")
-async def download_functional_report(report_id: str):
-    """
-    下载功能计算报表
-    
-    - **report_id**: 报表ID
-    """
-    try:
-        # 新格式：reports/functional_report-{uuid}.xlsx
-        backend_dir = Path(__file__).parent.parent.parent
-        reports_dir = backend_dir / "reports"
-        report_file = reports_dir / f"functional_report-{report_id}.xlsx"
-        
-        if not report_file.exists():
-            raise HTTPException(status_code=404, detail="报表文件不存在")
-        
-        from fastapi.responses import FileResponse
-        return FileResponse(
-            path=str(report_file),
-            filename=f"functional_report-{report_id}.xlsx",
-            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"下载报表失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"下载报表失败: {str(e)}")
