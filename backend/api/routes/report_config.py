@@ -1742,7 +1742,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.RUNDOWN_NP_CONFIG,
                         message="上传的文件中缺少Ng通道。\n\nNg余转时间配置需要使用Ng通道，由于缺少此通道，将跳过Ng余转时间配置。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
-                        suggested_actions=['上一步', '确认生成'],
+                        suggested_actions=['上一步', '确认配置'],
                         current_params=params
                     )
                 
@@ -1940,7 +1940,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.RUNDOWN_NP_CONFIG,
                     message=self._get_rundown_np_config_message(rundown_np, available_channels),
-                    suggested_actions=['上一步', '确认生成'],
+                    suggested_actions=['上一步', '确认配置'],
                     current_params=params
                 )
             else:
@@ -1973,7 +1973,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.RUNDOWN_NP_CONFIG,
                     message=f"Np余转时间的监控通道固定为Np，不可修改。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels) + "\n您可以修改其他参数，例如：统计方法、持续时长、判断依据、高阈值、低阈值。",
-                    suggested_actions=['上一步', '确认生成'],
+                    suggested_actions=['上一步', '确认配置'],
                     current_params=params
                 )
             
@@ -1996,7 +1996,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.RUNDOWN_NP_CONFIG,
                             message=f"已更改高阈值为 {extracted_value}。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
-                            suggested_actions=['上一步', '确认生成'],
+                            suggested_actions=['上一步', '确认配置'],
                             current_params=params
                         )
                 
@@ -2014,7 +2014,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.RUNDOWN_NP_CONFIG,
                             message=f"已更改低阈值为 {extracted_value}。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
-                            suggested_actions=['上一步', '确认生成'],
+                            suggested_actions=['上一步', '确认配置'],
                             current_params=params
                         )
                 
@@ -2042,7 +2042,7 @@ class ReportConfigManager:
                                         session_id=session_id,
                                         state=ConfigState.RUNDOWN_NP_CONFIG,
                                         message=f"持续时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
-                                        suggested_actions=['上一步', '确认生成'],
+                                        suggested_actions=['上一步', '确认配置'],
                                         current_params=params
                                     )
                             # 如果用户只说"阈值"而没有明确说高阈值或低阈值，默认处理为高阈值（threshold1）
@@ -2080,7 +2080,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.RUNDOWN_NP_CONFIG,
                         message=f"已更改{field_name}为{actual_value}。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
-                        suggested_actions=['上一步', '确认生成'],
+                        suggested_actions=['上一步', '确认配置'],
                         current_params=params
                     )
                 else:
@@ -2088,7 +2088,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.RUNDOWN_NP_CONFIG,
                         message=f"未能识别要修改的参数。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels) + "\n请明确说明要修改的参数。",
-                        suggested_actions=['上一步', '确认生成'],
+                        suggested_actions=['上一步', '确认配置'],
                         current_params=params
                     )
             elif action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
@@ -2137,7 +2137,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.RUNDOWN_NP_CONFIG,
                     message=self._get_rundown_np_config_message(rundown_np, available_channels) + "\n您可以使用自然语言修改参数，例如：'把阈值改为100'、'修改统计方法为最小值'。",
-                    suggested_actions=['上一步', '确认生成'],
+                    suggested_actions=['上一步', '确认配置'],
                     current_params=params
                 )
         
@@ -2274,7 +2274,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.CONFIRMATION,
                     message=self.get_step_message(report_type, ConfigState.CONFIRMATION, params),
-                    suggested_actions=[],
+                    suggested_actions=['返回上一步'],
                     current_params=params
                 )
             
@@ -2368,7 +2368,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.CONFIRMATION,
                         message=self.get_step_message(report_type, ConfigState.CONFIRMATION, params),
-                        suggested_actions=[],
+                        suggested_actions=['返回上一步'],
                         current_params=params
                     )
                 else:
@@ -2546,7 +2546,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.RUNDOWN_NP_CONFIG,
                         message=self._get_rundown_np_config_message(rundown_np, available_channels),
-                        suggested_actions=['上一步', '确认生成'],
+                        suggested_actions=['上一步', '确认配置'],
                         current_params=params
                     )
                 # 如果有Ng通道但没有Np通道，返回到Ng余转时间配置
@@ -2927,7 +2927,7 @@ class ReportConfigManager:
                 channels_text = f"\n【可用通道】：{', '.join(available_channels)}\n"
             if state == ConfigState.TIME_BASE_CONFIG:
                 time_base = params.get('time_base', {})
-                return f"""功能计算配置 - 第1步：配置"时间"（基准时刻）
+                return f"""第1步：配置"时间"（基准时刻）
 {channels_text}
 【当前默认参数】：
 - 监控通道: {time_base.get('channel', 'Ng')}
@@ -2947,7 +2947,7 @@ class ReportConfigManager:
 修改完成后输入"确认"或"下一步"继续。"""
             elif state == ConfigState.STARTUP_TIME_CONFIG:
                 startup_time = params.get('startup_time', {})
-                return f"""功能计算配置 - 第2步：配置"启动时间"
+                return f"""第2步：配置"启动时间"
 {channels_text}
 【当前默认参数】：
 - 监控通道: {startup_time.get('channel', 'Ng')}
@@ -2964,7 +2964,7 @@ class ReportConfigManager:
 - "确认"或"下一步"继续"""
             elif state == ConfigState.IGNITION_TIME_CONFIG:
                 ignition_time = params.get('ignition_time', {})
-                return f"""功能计算配置 - 第3步：配置"点火时间"
+                return f"""第3步：配置"点火时间"
 {channels_text}
 【当前默认参数】：
 - 监控通道: {ignition_time.get('channel', 'Pressure(kPa)')}
@@ -2985,7 +2985,7 @@ class ReportConfigManager:
 修改完成后输入"确认"或"下一步"继续。"""
             elif state == ConfigState.RUNDOWN_NG_CONFIG:
                 rundown_ng = params.get('rundown_ng', {})
-                return f"""功能计算配置 - 第4步：配置"Ng余转时间"
+                return f"""第4步：配置"Ng余转时间"
 {channels_text}
 【当前默认参数】：
 - 监控通道: {rundown_ng.get('channel', 'Ng')}（不可修改）
@@ -3005,7 +3005,7 @@ class ReportConfigManager:
 "确认"或"下一步"继续"""
             elif state == ConfigState.RUNDOWN_NP_CONFIG:
                 rundown_np = params.get('rundown_np', {})
-                return f"""功能计算配置 - 第5步：配置"Np余转时间"
+                return f"""第5步：配置"Np余转时间"
 {channels_text}
 【当前默认参数】：
 - 监控通道: {rundown_np.get('channel', 'Np')}（不可修改）
@@ -3446,7 +3446,7 @@ class ReportConfigManager:
         channels_text = ""
         if available_channels:
             channels_text = f"\n【可用通道】：{', '.join(available_channels)}\n"
-        return f"""功能计算配置 - 第1步：配置"时间"（基准时刻）
+        return f"""第1步：配置"时间"（基准时刻）
 {channels_text}
 【当前参数】：
 - 监控通道: {time_base.get('channel', 'Ng')}
@@ -3470,7 +3470,7 @@ class ReportConfigManager:
         channels_text = ""
         if available_channels:
             channels_text = f"\n【可用通道】：{', '.join(available_channels)}\n"
-        return f"""功能计算配置 - 第2步：配置"启动时间"
+        return f"""第2步：配置"启动时间"
 {channels_text}
 【当前参数】：
 - 监控通道: {startup_time.get('channel', 'Ng')}
@@ -3493,7 +3493,7 @@ class ReportConfigManager:
         channels_text = ""
         if available_channels:
             channels_text = f"\n【可用通道】：{', '.join(available_channels)}\n"
-        return f"""功能计算配置 - 第3步：配置"点火时间"
+        return f"""第3步：配置"点火时间"
 {channels_text}
 【当前参数】：
 - 监控通道: {ignition_time.get('channel', 'Pressure(kPa)')}
@@ -3523,7 +3523,7 @@ class ReportConfigManager:
             threshold_text = f"- 高阈值: {rundown_ng.get('threshold1', 200)}\n- 低阈值: {rundown_ng.get('threshold2', 100)}\n"
         else:
             threshold_text = f"- 阈值: {rundown_ng.get('threshold', 100)}\n"
-        return f"""功能计算配置 - 第4步：配置"Ng余转时间"
+        return f"""第4步：配置"Ng余转时间"
 {channels_text}
 【当前参数】：
 - 监控通道: {rundown_ng.get('channel', 'Ng')}（不可修改）
@@ -3552,7 +3552,7 @@ class ReportConfigManager:
             threshold_text = f"- 高阈值: {rundown_np.get('threshold1', 200)}\n- 低阈值: {rundown_np.get('threshold2', 100)}\n"
         else:
             threshold_text = f"- 阈值: {rundown_np.get('threshold', 100)}\n"
-        return f"""功能计算配置 - 第5步：配置"Np余转时间"
+        return f"""第5步：配置"Np余转时间"
 {channels_text}
 【当前参数】：
 - 监控通道: {rundown_np.get('channel', 'Np')}（不可修改）

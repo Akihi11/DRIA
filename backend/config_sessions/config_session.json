@@ -1,8 +1,8 @@
 {
   "sourceFileId": "Simulated_Data.csv",
-  "fileId": "d874de9d-fe3e-4f80-afe7-745a72c05de6",
+  "fileId": "91e7c2a2-e082-4cbd-a1d9-50c861ff12e2",
   "configFileName": "config_session.json",
-  "uploadTime": "2025-11-07T21:13:29.644203",
+  "uploadTime": "2025-11-07T21:22:43.381154",
   "channels": [
     {
       "channel_name": "系统电流",
@@ -110,15 +110,29 @@
       "conditionLogic": "AND",
       "evaluations": [
         {
-          "item": "surge",
-          "assessmentName": "喘振",
+          "item": "voltageCurrent",
+          "assessmentName": "电压/电流",
           "conditions": [
             {
               "channel": "系统电流",
-              "statistic": "差值计算",
-              "duration": 10,
+              "statistic": "有效值",
+              "duration": 1.0,
               "logic": ">",
-              "threshold": 100
+              "threshold": 10.0
+            },
+            {
+              "channel": "系统电压",
+              "statistic": "平均值",
+              "duration": 1.0,
+              "logic": ">",
+              "threshold": 220.0
+            },
+            {
+              "channel": "滑油压力",
+              "statistic": "最大值",
+              "duration": 2.0,
+              "logic": ">",
+              "threshold": 140.0
             }
           ]
         }
@@ -128,7 +142,7 @@
   "reportType": "状态评估",
   "history": [
     {
-      "timestamp": "2025-11-07T21:13:31.438093",
+      "timestamp": "2025-11-07T21:22:46.507431",
       "action": "set_report_type",
       "value": "状态评估"
     }

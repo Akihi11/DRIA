@@ -230,8 +230,10 @@ const ChatPage: React.FC = () => {
         
         if (configResponse.success) {
           // 配置更新成功
-          // 状态评估在配置评估项参数阶段需要显示上一步/下一步按钮
-          const shouldShowActions = configMode.reportType !== '状态评估' || configResponse.status === 'status_eval_config_item'
+          // 状态评估在配置评估项参数阶段和确认阶段需要显示按钮
+          const shouldShowActions = configMode.reportType !== '状态评估' || 
+            configResponse.status === 'status_eval_config_item' || 
+            configResponse.status === 'confirmation'
           const aiMessage: Message = {
             id: uuidv4(),
             type: 'ai',
@@ -258,8 +260,10 @@ const ChatPage: React.FC = () => {
           // 只有当用户点击"完成配置"按钮时才退出
         } else {
           // 配置更新失败，提供帮助信息
-          // 状态评估在配置评估项参数阶段需要显示上一步/下一步按钮
-          const shouldShowActions = configMode.reportType !== '状态评估' || configResponse.status === 'status_eval_config_item'
+          // 状态评估在配置评估项参数阶段和确认阶段需要显示按钮
+          const shouldShowActions = configMode.reportType !== '状态评估' || 
+            configResponse.status === 'status_eval_config_item' || 
+            configResponse.status === 'confirmation'
           const aiMessage: Message = {
             id: uuidv4(),
             type: 'ai',
