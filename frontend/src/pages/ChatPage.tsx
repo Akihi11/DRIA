@@ -34,6 +34,11 @@ const ChatPage: React.FC = () => {
   const [lastFileId, setLastFileId] = useState<string>("")
   const [channelModalVisible, setChannelModalVisible] = useState<boolean>(false)
   const [selectedChannels, setSelectedChannels] = useState<string[]>([])
+  
+  // 状态评估选择弹窗
+  const [statusEvalModalVisible, setStatusEvalModalVisible] = useState<boolean>(false)
+  const [availableEvalItems, setAvailableEvalItems] = useState<Array<{id: string, name: string}>>([])
+  const [selectedEvalItems, setSelectedEvalItems] = useState<string[]>([])
 
   // Initialize session on component mount
   useEffect(() => {
@@ -225,13 +230,15 @@ const ChatPage: React.FC = () => {
         
         if (configResponse.success) {
           // 配置更新成功
+          // 状态评估在配置评估项参数阶段需要显示上一步/下一步按钮
+          const shouldShowActions = configMode.reportType !== '状态评估' || configResponse.status === 'status_eval_config_item'
           const aiMessage: Message = {
             id: uuidv4(),
             type: 'ai',
             content: configResponse.message,
             timestamp: new Date(),
             metadata: {
-              suggestedActions: configResponse.suggested_actions || [],
+              suggestedActions: shouldShowActions ? (configResponse.suggested_actions || []) : [],
               configState: configResponse.status,
               currentParams: configResponse.config
             }
@@ -251,13 +258,15 @@ const ChatPage: React.FC = () => {
           // 只有当用户点击"完成配置"按钮时才退出
         } else {
           // 配置更新失败，提供帮助信息
+          // 状态评估在配置评估项参数阶段需要显示上一步/下一步按钮
+          const shouldShowActions = configMode.reportType !== '状态评估' || configResponse.status === 'status_eval_config_item'
           const aiMessage: Message = {
             id: uuidv4(),
             type: 'ai',
             content: configResponse.message,
             timestamp: new Date(),
             metadata: {
-              suggestedActions: configResponse.suggested_actions || []
+              suggestedActions: shouldShowActions ? (configResponse.suggested_actions || []) : []
             }
           }
           
@@ -316,6 +325,98 @@ const ChatPage: React.FC = () => {
     } else {
       // 其他建议按钮，正常发送消息
       handleSendMessage(action)
+    }
+  }
+
+  // 应用状态评估项目选择
+  const applyStatusEvalItemSelection = async () => {
+    if (!configMode.sessionId) return
+
+    if (selectedEvalItems.length === 0) {
+      message.warning('请至少选择一个评估项目')
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      // 选择所有评估项目
+      const successItems: string[] = []
+      const failedItems: string[] = []
+      
+      for (const itemId of selectedEvalItems) {
+        const item = availableEvalItems.find(i => i.id === itemId)
+        if (!item) continue
+        
+        try {
+          const itemResponse = await fetch('/api/config-dialogue/update-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              session_id: configMode.sessionId, 
+              user_input: `选择 ${item.name}` 
+            })
+          })
+          
+          if (itemResponse.ok) {
+            successItems.push(item.name)
+          } else {
+            failedItems.push(item.name)
+          }
+        } catch (error: any) {
+          failedItems.push(item.name)
+        }
+      }
+      
+      if (failedItems.length > 0) {
+        message.warning(`部分评估项目选择失败: ${failedItems.join(', ')}`)
+      }
+
+      // 完成选择
+      const response = await fetch('/api/config-dialogue/update-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          session_id: configMode.sessionId, 
+          user_input: '完成选择' 
+        })
+      })
+
+      const data = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(data.detail || '完成选择失败')
+      }
+
+      // 关闭弹窗
+      setStatusEvalModalVisible(false)
+
+      // 显示后端返回的消息
+      const currentState = data.state || data.status
+      // 在配置评估项参数阶段需要显示上一步/下一步按钮
+      const shouldShowActions = currentState === 'status_eval_config_item'
+      const aiMessage: Message = {
+        id: uuidv4(),
+        type: 'ai',
+        content: data.message || '已选择评估项目',
+        timestamp: new Date(),
+        metadata: {
+          suggestedActions: shouldShowActions ? (data.suggested_actions || []) : [],
+          configState: currentState,
+          currentParams: data.current_params || data.config
+        }
+      }
+      setMessages(prev => [...prev, aiMessage])
+
+      // 更新配置状态
+      setConfigMode(prev => ({
+        ...prev,
+        currentState: data.status || data.state,
+        currentParams: data.current_params || data.config || prev.currentParams
+      }))
+    } catch (e) {
+      message.error('应用评估项目选择失败，请重试')
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -502,8 +603,15 @@ const ChatPage: React.FC = () => {
           }
         }
         setMessages(prev => [...prev, aiMessage])
+      } else if (reportType === '状态评估') {
+        // 状态评估弹出选择弹窗，不显示AI消息
+        const availableItems = configResponse.config?.availableItems || []
+        setAvailableEvalItems(availableItems)
+        // 默认全选所有评估项
+        setSelectedEvalItems(availableItems.map((item: {id: string, name: string}) => item.id))
+        setStatusEvalModalVisible(true)
       } else {
-        // 状态评估、完整报表暂不支持，不显示任何内容
+        // 完整报表暂不支持，不显示任何内容
         // 不显示AI消息
       }
 
@@ -672,6 +780,45 @@ const ChatPage: React.FC = () => {
           <Space direction="vertical" style={{ width: '100%' }}>
             {lastFileChannels.map(name => (
               <Checkbox key={name} value={name}>{name}</Checkbox>
+            ))}
+          </Space>
+        </Checkbox.Group>
+      </Modal>
+
+      {/* 状态评估 - 评估项目选择弹窗 */}
+      <Modal
+        title="请选择需要评估的项目"
+        open={statusEvalModalVisible}
+        onCancel={() => setStatusEvalModalVisible(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setStatusEvalModalVisible(false)}>取消</Button>,
+          <Button key="ok" type="primary" onClick={applyStatusEvalItemSelection}>确定</Button>
+        ]}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Button 
+            type="link" 
+            onClick={() => {
+              // 全选：如果当前已全选，则取消全选；否则全选
+              const allSelected = selectedEvalItems.length === availableEvalItems.length
+              if (allSelected) {
+                setSelectedEvalItems([])
+              } else {
+                setSelectedEvalItems(availableEvalItems.map((item: {id: string, name: string}) => item.id))
+              }
+            }}
+          >
+            {selectedEvalItems.length === availableEvalItems.length ? '取消全选' : '全选'}
+          </Button>
+        </div>
+        <Checkbox.Group
+          style={{ width: '100%' }}
+          value={selectedEvalItems}
+          onChange={(vals) => setSelectedEvalItems(vals as string[])}
+        >
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {availableEvalItems.map(item => (
+              <Checkbox key={item.id} value={item.id}>{item.name}</Checkbox>
             ))}
           </Space>
         </Checkbox.Group>

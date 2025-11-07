@@ -42,6 +42,8 @@ class ConfigState(str, Enum):
     IGNITION_TIME_CONFIG = "ignition_time_config"  # 功能计算：点火时间配置
     RUNDOWN_NG_CONFIG = "rundown_ng_config"  # 功能计算：Ng余转时间配置
     RUNDOWN_NP_CONFIG = "rundown_np_config"  # 功能计算：Np余转时间配置
+    STATUS_EVAL_SELECT_ITEMS = "status_eval_select_items"  # 状态评估：选择评估项目
+    STATUS_EVAL_CONFIG_ITEM = "status_eval_config_item"  # 状态评估：配置评估项参数
     CONFIRMATION = "confirmation"
     GENERATING = "generating"
     COMPLETED = "completed"
@@ -156,9 +158,9 @@ class ReportConfigManager:
             except Exception as e:
                 logger.warning(f"从配置文件读取availableChannels失败: {e}")
         
-        # 如果从配置文件读取失败，尝试从文件提取（仅稳态和功能计算）
+        # 如果从配置文件读取失败，尝试从文件提取（稳态、功能计算和状态评估都需要）
         if not available_channels:
-            if report_type in [ReportType.STEADY_STATE, ReportType.FUNCTION_CALC] and file_id:
+            if report_type in [ReportType.STEADY_STATE, ReportType.FUNCTION_CALC, ReportType.STATUS_EVAL] and file_id:
                 try:
                     uploads_dir = Path(__file__).parent.parent.parent / "uploads"
                     file_path = None
@@ -189,8 +191,8 @@ class ReportConfigManager:
         if report_type == ReportType.FUNCTION_CALC:
             initial_state = ConfigState.TIME_BASE_CONFIG
         elif report_type == ReportType.STATUS_EVAL:
-            # 状态评估直接从配置文件读取，不需要用户配置，直接进入确认状态
-            initial_state = ConfigState.CONFIRMATION
+            # 状态评估从选择评估项目开始
+            initial_state = ConfigState.STATUS_EVAL_SELECT_ITEMS
         else:
             initial_state = ConfigState.DISPLAY_CHANNELS
         
@@ -210,8 +212,12 @@ class ReportConfigManager:
             suggested_actions = self.get_channel_options(report_type, default_params)
         elif initial_state == ConfigState.TIME_BASE_CONFIG:
             suggested_actions = ['下一步']
+        elif initial_state == ConfigState.STATUS_EVAL_SELECT_ITEMS:
+            # 状态评估：使用弹窗选择，不显示建议操作
+            suggested_actions = []
         elif initial_state == ConfigState.CONFIRMATION:
-            suggested_actions = ['确认生成', '取消配置']
+            # 确认配置页面只显示上一步按钮
+            suggested_actions = ['上一步']
         else:
             suggested_actions = []
         
@@ -745,8 +751,10 @@ class ReportConfigManager:
                         params['triggerLogic']['condition1'] = condition
                         # 记录最后一次操作的条件
                         session['last_modified_condition'] = '条件一'
+                        logger.info(f"[参数修改-条件一] session_id: {session_id}, action: {action}, value: {extracted_value}, 开始保存配置")
                         self._save_display_channels_to_json(session, params)  # 立即保存
                         self._save_conditions_to_json(session, params)  # 保存conditions
+                        logger.info(f"[参数修改-条件一] 配置已保存到config_session.json")
                         # 获取field_name，支持"逻辑"、"判断依据"和"判据"三种说法
                         field_name = None
                         for k in field_map.keys():
@@ -788,8 +796,11 @@ class ReportConfigManager:
                         )
                 elif action in ['确认', '下一步', '下一步骤', '继续', '确认配置', '好了', 'ok']:
                     # 确认配置，保存并进入生成状态
+                    logger.info(f"[确认配置操作-条件一] session_id: {session_id}, action: {action}, 当前状态: {current_state}")
+                    logger.info(f"[确认配置操作-条件一] 开始保存配置到config_session.json")
                     self._save_display_channels_to_json(session, params)
                     self._save_conditions_to_json(session, params)
+                    logger.info(f"[确认配置操作-条件一] 配置已保存，状态从 {current_state} 切换到 GENERATING")
                     session['state'] = ConfigState.GENERATING
                     return ConfigResponse(
                         session_id=session_id,
@@ -920,8 +931,11 @@ class ReportConfigManager:
                         )
                 elif action in ['确认', '下一步', '下一步骤', '继续', '确认配置', '好了', 'ok']:
                     # 确认配置，保存并进入生成状态
+                    logger.info(f"[确认配置操作-条件二] session_id: {session_id}, action: {action}, 当前状态: {current_state}")
+                    logger.info(f"[确认配置操作-条件二] 开始保存配置到config_session.json")
                     self._save_display_channels_to_json(session, params)
                     self._save_conditions_to_json(session, params)
+                    logger.info(f"[确认配置操作-条件二] 配置已保存，状态从 {current_state} 切换到 GENERATING")
                     session['state'] = ConfigState.GENERATING
                     return ConfigResponse(
                         session_id=session_id,
@@ -1439,7 +1453,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.STARTUP_TIME_CONFIG,
                     message=self._get_startup_time_config_message(startup_time, available_channels),
-                    suggested_actions=['返回上一步', '下一步'],
+                    suggested_actions=['上一步', '下一步'],
                     current_params=params
                 )
             else:
@@ -1471,7 +1485,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.STARTUP_TIME_CONFIG,
                             message=f"已更改监控通道为 {new_channel}。\n\n" + self._get_startup_time_config_message(startup_time, available_channels),
-                            suggested_actions=['返回上一步', '下一步'],
+                            suggested_actions=['上一步', '下一步'],
                             current_params=params
                         )
                     else:
@@ -1479,7 +1493,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.STARTUP_TIME_CONFIG,
                             message=f"未能识别您要选择的通道。可选通道：{', '.join(available_channels)}\n\n" + self._get_startup_time_config_message(startup_time, available_channels) + "\n请明确指定通道名。",
-                            suggested_actions=['返回上一步', '下一步'],
+                            suggested_actions=['上一步', '下一步'],
                             current_params=params
                         )
                 
@@ -1504,7 +1518,7 @@ class ReportConfigManager:
                                         session_id=session_id,
                                         state=ConfigState.STARTUP_TIME_CONFIG,
                                         message=f"持续时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。\n\n" + self._get_startup_time_config_message(startup_time, available_channels),
-                                        suggested_actions=['返回上一步', '下一步'],
+                                        suggested_actions=['上一步', '下一步'],
                                         current_params=params
                                     )
                             startup_time[v] = extracted_value
@@ -1538,7 +1552,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.STARTUP_TIME_CONFIG,
                         message=f"已更改{field_name}为{actual_value}。\n\n" + self._get_startup_time_config_message(startup_time, available_channels),
-                        suggested_actions=['返回上一步', '下一步'],
+                        suggested_actions=['上一步', '下一步'],
                         current_params=params
                     )
                 else:
@@ -1546,7 +1560,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.STARTUP_TIME_CONFIG,
                         message=f"未能识别要修改的参数。\n\n" + self._get_startup_time_config_message(startup_time, available_channels) + "\n请明确说明要修改的参数。",
-                        suggested_actions=['返回上一步', '下一步'],
+                        suggested_actions=['上一步', '下一步'],
                         current_params=params
                     )
             elif action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
@@ -1570,7 +1584,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.IGNITION_TIME_CONFIG,
                     message=self._get_ignition_time_config_message(ignition_time, available_channels),
-                    suggested_actions=['返回上一步', '下一步'],
+                    suggested_actions=['上一步', '下一步'],
                     current_params=params
                 )
             else:
@@ -1578,7 +1592,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.STARTUP_TIME_CONFIG,
                     message=self._get_startup_time_config_message(startup_time, available_channels) + "\n您可以使用自然语言修改参数，例如：'把阈值改为150'、'修改统计方法为最大值'。",
-                        suggested_actions=['返回上一步', '下一步'],
+                        suggested_actions=['上一步', '下一步'],
                     current_params=params
                 )
         
@@ -1593,7 +1607,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.IGNITION_TIME_CONFIG,
                     message=f"计算类型（差值计算）是不可修改的参数。\n\n" + self._get_ignition_time_config_message(ignition_time, available_channels) + "\n您可以修改其他参数，例如：监控通道、持续时长、判断依据、阈值。",
-                    suggested_actions=['返回上一步', '下一步'],
+                    suggested_actions=['上一步', '下一步'],
                     current_params=params
                 )
             
@@ -1611,7 +1625,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.IGNITION_TIME_CONFIG,
                             message=f"已更改监控通道为 {new_channel}。\n\n" + self._get_ignition_time_config_message(ignition_time, available_channels),
-                            suggested_actions=['返回上一步', '下一步'],
+                            suggested_actions=['上一步', '下一步'],
                             current_params=params
                         )
                     else:
@@ -1619,7 +1633,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.IGNITION_TIME_CONFIG,
                             message=f"未能识别您要选择的通道。可选通道：{', '.join(available_channels)}\n\n" + self._get_ignition_time_config_message(ignition_time, available_channels) + "\n请明确指定通道名。",
-                            suggested_actions=['返回上一步', '下一步'],
+                            suggested_actions=['上一步', '下一步'],
                             current_params=params
                         )
                 
@@ -1644,7 +1658,7 @@ class ReportConfigManager:
                                         session_id=session_id,
                                         state=ConfigState.IGNITION_TIME_CONFIG,
                                         message=f"持续时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。\n\n" + self._get_ignition_time_config_message(ignition_time, available_channels),
-                                        suggested_actions=['返回上一步', '下一步'],
+                                        suggested_actions=['上一步', '下一步'],
                                         current_params=params
                                     )
                             ignition_time[v] = extracted_value
@@ -1678,7 +1692,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.IGNITION_TIME_CONFIG,
                         message=f"已更改{field_name}为{actual_value}。\n\n" + self._get_ignition_time_config_message(ignition_time, available_channels),
-                        suggested_actions=['返回上一步', '下一步'],
+                        suggested_actions=['上一步', '下一步'],
                         current_params=params
                     )
                 else:
@@ -1686,7 +1700,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.IGNITION_TIME_CONFIG,
                         message=f"未能识别要修改的参数。\n\n" + self._get_ignition_time_config_message(ignition_time, available_channels) + "\n请明确说明要修改的参数。",
-                        suggested_actions=['返回上一步', '下一步'],
+                        suggested_actions=['上一步', '下一步'],
                         current_params=params
                     )
             elif action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
@@ -1697,7 +1711,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.STARTUP_TIME_CONFIG,
                     message=self._get_startup_time_config_message(startup_time, available_channels),
-                    suggested_actions=['返回上一步', '下一步'],
+                    suggested_actions=['上一步', '下一步'],
                     current_params=params
                 )
             elif action in ['确认', '下一步', '下一步骤', '继续']:
@@ -1728,7 +1742,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.RUNDOWN_NP_CONFIG,
                         message="上传的文件中缺少Ng通道。\n\nNg余转时间配置需要使用Ng通道，由于缺少此通道，将跳过Ng余转时间配置。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
-                        suggested_actions=['返回上一步', '确认生成'],
+                        suggested_actions=['上一步', '确认生成'],
                         current_params=params
                     )
                 
@@ -1739,7 +1753,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.RUNDOWN_NG_CONFIG,
                     message=self._get_rundown_ng_config_message(rundown_ng, available_channels),
-                    suggested_actions=['返回上一步', '下一步'],
+                    suggested_actions=['上一步', '下一步'],
                     current_params=params
                 )
             else:
@@ -1747,7 +1761,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.IGNITION_TIME_CONFIG,
                     message=self._get_ignition_time_config_message(ignition_time, available_channels) + "\n您可以使用自然语言修改参数，例如：'把阈值改为500'、'设置持续时长为10秒'。",
-                    suggested_actions=['返回上一步', '下一步'],
+                    suggested_actions=['上一步', '下一步'],
                     current_params=params
                 )
         
@@ -1772,7 +1786,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.RUNDOWN_NG_CONFIG,
                     message=f"Ng余转时间的监控通道固定为Ng，不可修改。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels) + "\n您可以修改其他参数，例如：统计方法、持续时长、判断依据、高阈值、低阈值。",
-                    suggested_actions=['返回上一步', '下一步'],
+                    suggested_actions=['上一步', '下一步'],
                     current_params=params
                 )
             
@@ -1795,7 +1809,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.RUNDOWN_NG_CONFIG,
                             message=f"已更改高阈值为 {extracted_value}。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels),
-                            suggested_actions=['返回上一步', '下一步'],
+                            suggested_actions=['上一步', '下一步'],
                             current_params=params
                         )
                 
@@ -1813,7 +1827,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.RUNDOWN_NG_CONFIG,
                             message=f"已更改低阈值为 {extracted_value}。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels),
-                            suggested_actions=['返回上一步', '下一步'],
+                            suggested_actions=['上一步', '下一步'],
                             current_params=params
                         )
                 
@@ -1841,7 +1855,7 @@ class ReportConfigManager:
                                         session_id=session_id,
                                         state=ConfigState.RUNDOWN_NG_CONFIG,
                                         message=f"持续时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels),
-                                        suggested_actions=['返回上一步', '下一步'],
+                                        suggested_actions=['上一步', '下一步'],
                                         current_params=params
                                     )
                             # 如果用户只说"阈值"而没有明确说高阈值或低阈值，默认处理为高阈值（threshold1）
@@ -1879,7 +1893,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.RUNDOWN_NG_CONFIG,
                         message=f"已更改{field_name}为{actual_value}。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels),
-                        suggested_actions=['返回上一步', '下一步'],
+                        suggested_actions=['上一步', '下一步'],
                         current_params=params
                     )
                 else:
@@ -1887,7 +1901,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.RUNDOWN_NG_CONFIG,
                         message=f"未能识别要修改的参数。\n\n" + self._get_rundown_ng_config_message(rundown_ng, available_channels) + "\n请明确说明要修改的参数。",
-                        suggested_actions=['返回上一步', '下一步'],
+                        suggested_actions=['上一步', '下一步'],
                         current_params=params
                     )
             elif action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
@@ -1898,7 +1912,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.IGNITION_TIME_CONFIG,
                     message=self._get_ignition_time_config_message(ignition_time, available_channels),
-                    suggested_actions=['返回上一步', '下一步'],
+                    suggested_actions=['上一步', '下一步'],
                     current_params=params
                 )
             elif action in ['确认', '下一步', '下一步骤', '继续']:
@@ -1926,7 +1940,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.RUNDOWN_NP_CONFIG,
                     message=self._get_rundown_np_config_message(rundown_np, available_channels),
-                    suggested_actions=['返回上一步', '确认生成'],
+                    suggested_actions=['上一步', '确认生成'],
                     current_params=params
                 )
             else:
@@ -1934,7 +1948,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.RUNDOWN_NG_CONFIG,
                     message=self._get_rundown_ng_config_message(rundown_ng, available_channels) + "\n您可以使用自然语言修改参数，例如：'把阈值改为100'、'修改统计方法为最小值'。",
-                    suggested_actions=['返回上一步', '下一步'],
+                    suggested_actions=['上一步', '下一步'],
                     current_params=params
                 )
         
@@ -1959,7 +1973,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.RUNDOWN_NP_CONFIG,
                     message=f"Np余转时间的监控通道固定为Np，不可修改。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels) + "\n您可以修改其他参数，例如：统计方法、持续时长、判断依据、高阈值、低阈值。",
-                    suggested_actions=['返回上一步', '确认生成'],
+                    suggested_actions=['上一步', '确认生成'],
                     current_params=params
                 )
             
@@ -1982,7 +1996,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.RUNDOWN_NP_CONFIG,
                             message=f"已更改高阈值为 {extracted_value}。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
-                            suggested_actions=['返回上一步', '确认生成'],
+                            suggested_actions=['上一步', '确认生成'],
                             current_params=params
                         )
                 
@@ -2000,7 +2014,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.RUNDOWN_NP_CONFIG,
                             message=f"已更改低阈值为 {extracted_value}。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
-                            suggested_actions=['返回上一步', '确认生成'],
+                            suggested_actions=['上一步', '确认生成'],
                             current_params=params
                         )
                 
@@ -2028,7 +2042,7 @@ class ReportConfigManager:
                                         session_id=session_id,
                                         state=ConfigState.RUNDOWN_NP_CONFIG,
                                         message=f"持续时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
-                                        suggested_actions=['返回上一步', '确认生成'],
+                                        suggested_actions=['上一步', '确认生成'],
                                         current_params=params
                                     )
                             # 如果用户只说"阈值"而没有明确说高阈值或低阈值，默认处理为高阈值（threshold1）
@@ -2066,7 +2080,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.RUNDOWN_NP_CONFIG,
                         message=f"已更改{field_name}为{actual_value}。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels),
-                        suggested_actions=['返回上一步', '确认生成'],
+                        suggested_actions=['上一步', '确认生成'],
                         current_params=params
                     )
                 else:
@@ -2074,7 +2088,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.RUNDOWN_NP_CONFIG,
                         message=f"未能识别要修改的参数。\n\n" + self._get_rundown_np_config_message(rundown_np, available_channels) + "\n请明确说明要修改的参数。",
-                        suggested_actions=['返回上一步', '确认生成'],
+                        suggested_actions=['上一步', '确认生成'],
                         current_params=params
                     )
             elif action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
@@ -2090,7 +2104,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.RUNDOWN_NG_CONFIG,
                         message=self._get_rundown_ng_config_message(rundown_ng, available_channels),
-                        suggested_actions=['返回上一步', '下一步'],
+                        suggested_actions=['上一步', '下一步'],
                         current_params=params
                     )
                 else:
@@ -2101,12 +2115,15 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.IGNITION_TIME_CONFIG,
                         message=self._get_ignition_time_config_message(ignition_time, available_channels),
-                        suggested_actions=['返回上一步', '下一步'],
+                        suggested_actions=['上一步', '下一步'],
                         current_params=params
                     )
             elif action in ['确认', '下一步', '下一步骤', '继续', '确认配置', '确认生成']:
                 # 进入确认状态前，保存最后一步的配置
+                logger.info(f"[确认配置操作-功能计算] session_id: {session_id}, action: {action}, 当前状态: {current_state}")
+                logger.info(f"[确认配置操作-功能计算] 开始保存配置到config_session.json")
                 self._save_function_calc_config_to_json(session, params)
+                logger.info(f"[确认配置操作-功能计算] 配置已保存，状态从 {current_state} 切换到 CONFIRMATION")
                 session['state'] = ConfigState.CONFIRMATION
                 return create_response(
                     session_id=session_id,
@@ -2120,14 +2137,342 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.RUNDOWN_NP_CONFIG,
                     message=self._get_rundown_np_config_message(rundown_np, available_channels) + "\n您可以使用自然语言修改参数，例如：'把阈值改为100'、'修改统计方法为最小值'。",
-                    suggested_actions=['返回上一步', '确认生成'],
+                    suggested_actions=['上一步', '确认生成'],
+                    current_params=params
+                )
+        
+        # 状态评估相关状态处理
+        elif current_state == ConfigState.STATUS_EVAL_SELECT_ITEMS:
+            # 选择评估项目
+            available_items = params.get('availableItems', [])
+            selected_items = params.get('selectedItems', [])
+            
+            if action == '完成选择':
+                if not selected_items:
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.STATUS_EVAL_SELECT_ITEMS,
+                        message="请至少选择一个评估项目。",
+                        suggested_actions=[],
+                        current_params=params
+                    )
+                # 为所有选中的评估项初始化默认配置
+                available_channels = params.get('availableChannels', [])
+                evaluations = params.get('evaluations', [])
+                
+                # 为每个选中的评估项初始化默认配置
+                for item_id in selected_items:
+                    # 检查是否已经存在配置
+                    existing_eval = next((eval for eval in evaluations if eval.get('item') == item_id), None)
+                    if not existing_eval:
+                        # 找到对应的评估项信息
+                        item = next((item for item in available_items if item['id'] == item_id), None)
+                        if item:
+                            # 初始化默认配置
+                            default_eval = self._init_status_eval_item_config(item, available_channels)
+                            evaluations.append(default_eval)
+                
+                params['evaluations'] = evaluations
+                
+                # 立即保存默认配置到 config_session.json
+                logger.info(f"[状态评估-初始化] session_id: {session_id}, 开始保存默认配置到config_session.json，评估项数量: {len(evaluations)}")
+                self._save_status_eval_config_to_json(session, params)
+                logger.info(f"[状态评估-初始化] 默认配置已保存到config_session.json")
+                
+                # 开始配置第一个评估项
+                params['currentItemIndex'] = 0
+                session['state'] = ConfigState.STATUS_EVAL_CONFIG_ITEM
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.STATUS_EVAL_CONFIG_ITEM,
+                    message=self._get_status_eval_item_config_message(params),
+                    suggested_actions=self.get_current_actions(ConfigState.STATUS_EVAL_CONFIG_ITEM, report_type, params),
+                    current_params=params
+                )
+            elif action.startswith('选择 ') or action.startswith('取消选择 '):
+                # 处理选择/取消选择评估项目
+                item_name = action.replace('选择 ', '').replace('取消选择 ', '')
+                item = next((item for item in available_items if item['name'] == item_name), None)
+                
+                if item:
+                    item_id = item['id']
+                    if action.startswith('选择 '):
+                        if item_id not in selected_items:
+                            selected_items.append(item_id)
+                    else:  # 取消选择
+                        if item_id in selected_items:
+                            selected_items.remove(item_id)
+                    
+                    params['selectedItems'] = selected_items
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.STATUS_EVAL_SELECT_ITEMS,
+                        message=self.get_step_message(report_type, ConfigState.STATUS_EVAL_SELECT_ITEMS, params),
+                        suggested_actions=[],
+                        current_params=params
+                    )
+                else:
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.STATUS_EVAL_SELECT_ITEMS,
+                        message=f"未能识别评估项目：{item_name}",
+                        suggested_actions=[],
+                        current_params=params
+                    )
+            else:
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.STATUS_EVAL_SELECT_ITEMS,
+                    message=self.get_step_message(report_type, ConfigState.STATUS_EVAL_SELECT_ITEMS, params),
+                    suggested_actions=[],
+                    current_params=params
+                )
+        
+        elif current_state == ConfigState.STATUS_EVAL_CONFIG_ITEM:
+            # 配置评估项参数
+            available_items = params.get('availableItems', [])
+            selected_items = params.get('selectedItems', [])
+            current_item_index = params.get('currentItemIndex', 0)
+            # 确保evaluations是params中的引用，而不是新的空列表
+            if 'evaluations' not in params:
+                params['evaluations'] = []
+            evaluations = params['evaluations']  # 直接使用params中的引用
+            available_channels = params.get('availableChannels', [])
+            
+            if current_item_index >= len(selected_items):
+                # 所有评估项已配置完成，进入确认状态
+                # 确保evaluations已保存到params中
+                params['evaluations'] = evaluations
+                logger.info(f"[进入确认状态] 保存了 {len(evaluations)} 个评估项到params")
+                
+                # 先保存配置
+                logger.info(f"[状态评估-进入确认状态] session_id: {session_id}, 开始保存配置到config_session.json")
+                self._save_status_eval_config_to_json(session, params)
+                logger.info(f"[状态评估-进入确认状态] 配置已保存到config_session.json")
+                
+                # 确保params中有evaluations，如果没有则从配置文件读取
+                if not params.get('evaluations'):
+                    logger.warning(f"[进入确认状态] params中没有evaluations，尝试从配置文件读取")
+                    try:
+                        config_path, existing_config = self._get_config_file_path(session)
+                        if config_path and existing_config:
+                            report_config = existing_config.get('reportConfig', {})
+                            status_eval = report_config.get('statusEval', {})
+                            evaluations_from_file = status_eval.get('evaluations', [])
+                            if evaluations_from_file:
+                                params['evaluations'] = evaluations_from_file
+                                logger.info(f"[进入确认状态] 从配置文件读取到 {len(evaluations_from_file)} 个评估项")
+                    except Exception as e:
+                        logger.warning(f"从配置文件读取评估项失败: {e}")
+                
+                # 记录最终evaluations数量
+                final_evaluations_count = len(params.get('evaluations', []))
+                logger.info(f"[进入确认状态] 最终params中有 {final_evaluations_count} 个评估项")
+                
+                session['state'] = ConfigState.CONFIRMATION
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.CONFIRMATION,
+                    message=self.get_step_message(report_type, ConfigState.CONFIRMATION, params),
+                    suggested_actions=[],
+                    current_params=params
+                )
+            
+            # 获取当前评估项
+            current_item_id = selected_items[current_item_index]
+            current_item = next((item for item in available_items if item['id'] == current_item_id), None)
+            
+            if not current_item:
+                return create_response(
+                    session_id=session_id,
+                    state=ConfigState.STATUS_EVAL_CONFIG_ITEM,
+                    message="评估项配置错误。",
+                    suggested_actions=self.get_current_actions(ConfigState.STATUS_EVAL_CONFIG_ITEM, report_type, params),
+                    current_params=params
+                )
+            
+            # 获取或初始化当前评估项配置
+            current_eval = next((eval for eval in evaluations if eval.get('item') == current_item_id), None)
+            if not current_eval:
+                current_eval = self._init_status_eval_item_config(current_item, available_channels)
+                evaluations.append(current_eval)
+                params['evaluations'] = evaluations
+            
+            # 处理返回上一步
+            if action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
+                if current_item_index > 0:
+                    params['currentItemIndex'] = current_item_index - 1
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.STATUS_EVAL_CONFIG_ITEM,
+                        message=self._get_status_eval_item_config_message(params),
+                        suggested_actions=self.get_current_actions(ConfigState.STATUS_EVAL_CONFIG_ITEM, report_type, params),
+                        current_params=params
+                    )
+                else:
+                    # 返回项目选择
+                    session['state'] = ConfigState.STATUS_EVAL_SELECT_ITEMS
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.STATUS_EVAL_SELECT_ITEMS,
+                        message=self.get_step_message(report_type, ConfigState.STATUS_EVAL_SELECT_ITEMS, params),
+                        suggested_actions=[],
+                        current_params=params
+                    )
+            
+            # 处理下一步或确认配置
+            if action in ['下一步', '确认配置', '确认', '完成']:
+                # 保存当前评估项配置
+                current_eval_index = next((i for i, eval in enumerate(evaluations) if eval.get('item') == current_item_id), -1)
+                if current_eval_index >= 0:
+                    evaluations[current_eval_index] = current_eval
+                else:
+                    evaluations.append(current_eval)
+                params['evaluations'] = evaluations
+                
+                # 检查是否是最后一个配置项
+                is_last_item = (current_item_index == len(selected_items) - 1)
+                
+                if is_last_item or action in ['确认配置', '确认', '完成']:
+                    # 所有评估项已配置完成，进入确认状态
+                    # 先保存配置
+                    logger.info(f"[确认配置操作-状态评估] session_id: {session_id}, action: {action}, 当前状态: {current_state}")
+                    logger.info(f"[确认配置操作-状态评估] 开始保存配置到config_session.json")
+                    self._save_status_eval_config_to_json(session, params)
+                    logger.info(f"[确认配置操作-状态评估] 配置已保存，状态从 {current_state} 切换到 CONFIRMATION")
+                    
+                    # 保存后，强制从配置文件重新读取evaluations，确保数据是最新的
+                    try:
+                        config_path, existing_config = self._get_config_file_path(session)
+                        if config_path and existing_config:
+                            report_config = existing_config.get('reportConfig', {})
+                            status_eval = report_config.get('statusEval', {})
+                            evaluations_from_file = status_eval.get('evaluations', [])
+                            if evaluations_from_file:
+                                params['evaluations'] = evaluations_from_file
+                                logger.info(f"[确认配置操作-状态评估] 从配置文件读取到 {len(evaluations_from_file)} 个评估项")
+                            else:
+                                # 如果配置文件中没有，使用params中的evaluations（可能为空，但至少不会丢失）
+                                logger.warning(f"[确认配置操作-状态评估] 配置文件中没有evaluations，使用params中的evaluations")
+                        else:
+                            logger.warning(f"[确认配置操作-状态评估] 无法读取配置文件")
+                    except Exception as e:
+                        logger.warning(f"从配置文件读取评估项失败: {e}")
+                    
+                    # 记录最终evaluations数量用于调试
+                    final_evaluations_count = len(params.get('evaluations', []))
+                    logger.info(f"[确认配置操作-状态评估] 最终params中有 {final_evaluations_count} 个评估项")
+                    
+                    session['state'] = ConfigState.CONFIRMATION
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.CONFIRMATION,
+                        message=self.get_step_message(report_type, ConfigState.CONFIRMATION, params),
+                        suggested_actions=[],
+                        current_params=params
+                    )
+                else:
+                    # 移动到下一个评估项之前，先保存当前配置
+                    logger.info(f"[状态评估-下一步] session_id: {session_id}, 开始保存当前配置到config_session.json")
+                    self._save_status_eval_config_to_json(session, params)
+                    logger.info(f"[状态评估-下一步] 配置已保存到config_session.json")
+                    
+                    # 移动到下一个评估项
+                    params['currentItemIndex'] = current_item_index + 1
+                    # 继续配置下一个评估项
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.STATUS_EVAL_CONFIG_ITEM,
+                        message=self._get_status_eval_item_config_message(params),
+                        suggested_actions=self.get_current_actions(ConfigState.STATUS_EVAL_CONFIG_ITEM, report_type, params),
+                        current_params=params
+                    )
+            
+            # 处理自然语言修改参数
+            if action and ('修改' in action or '改为' in action or '改成' in action or '设置为' in action or '设置成' in action):
+                result = self._handle_status_eval_item_modification(
+                    action, value, current_eval, available_channels, current_item
+                )
+                if result['modified']:
+                    # 更新evaluations中的配置
+                    current_eval_index = next((i for i, eval in enumerate(evaluations) if eval.get('item') == current_item_id), -1)
+                    if current_eval_index >= 0:
+                        evaluations[current_eval_index] = current_eval
+                    else:
+                        evaluations.append(current_eval)
+                    params['evaluations'] = evaluations
+                    
+                    # 立即保存配置到文件
+                    logger.info(f"[状态评估-参数修改] session_id: {session_id}, 开始保存修改后的配置到config_session.json")
+                    self._save_status_eval_config_to_json(session, params)
+                    logger.info(f"[状态评估-参数修改] 配置已保存到config_session.json")
+                    
+                    # 构建修改消息（合并为一行显示）
+                    change_parts = []
+                    for change in result['changes']:
+                        if change['condition']:
+                            change_parts.append(f"{change['condition']}的{change['param']}为{change['value']}")
+                        else:
+                            change_parts.append(f"{change['param']}为{change['value']}")
+                    
+                    # 将所有更改合并为一行，用逗号分隔
+                    change_text = f"已更改：{', '.join(change_parts)}。"
+                    config_message = self._get_status_eval_item_config_message(params)
+                    full_message = f"{change_text}\n\n{config_message}"
+                    
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.STATUS_EVAL_CONFIG_ITEM,
+                        message=full_message,
+                        suggested_actions=self.get_current_actions(ConfigState.STATUS_EVAL_CONFIG_ITEM, report_type, params),
+                        current_params=params
+                    )
+            
+            # 默认返回当前配置消息
+            return create_response(
+                session_id=session_id,
+                state=ConfigState.STATUS_EVAL_CONFIG_ITEM,
+                message=self._get_status_eval_item_config_message(params),
+                suggested_actions=self.get_current_actions(ConfigState.STATUS_EVAL_CONFIG_ITEM, report_type, params),
                     current_params=params
                 )
         
         elif current_state == ConfigState.CONFIRMATION:
-            # 状态评估类型不需要返回上一步，直接处理确认生成
+            # 状态评估类型的处理
             if report_type == ReportType.STATUS_EVAL:
-                if action == '确认生成':
+                if action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
+                    # 返回到配置项参数配置状态
+                    # 获取最后一个评估项的索引，或者使用当前索引
+                    selected_items = params.get('selectedItems', [])
+                    evaluations = params.get('evaluations', [])
+                    
+                    # 如果有已配置的评估项，返回到最后一个评估项的配置
+                    if evaluations and selected_items:
+                        # 找到最后一个已配置的评估项
+                        last_eval_item_id = evaluations[-1].get('item')
+                        if last_eval_item_id in selected_items:
+                            current_item_index = selected_items.index(last_eval_item_id)
+                            params['currentItemIndex'] = current_item_index
+                        else:
+                            # 如果找不到，返回到第一个评估项
+                            params['currentItemIndex'] = 0
+                    else:
+                        # 如果没有已配置的评估项，返回到第一个评估项
+                        params['currentItemIndex'] = 0
+                    
+                    session['state'] = ConfigState.STATUS_EVAL_CONFIG_ITEM
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.STATUS_EVAL_CONFIG_ITEM,
+                        message=self._get_status_eval_item_config_message(params),
+                        suggested_actions=self.get_current_actions(ConfigState.STATUS_EVAL_CONFIG_ITEM, report_type, params),
+                        current_params=params
+                    )
+                elif action == '确认生成':
+                    # 确保配置已保存
+                    logger.info(f"[状态评估-确认生成] session_id: {session_id}, action: {action}, 开始保存配置到config_session.json")
+                    self._save_status_eval_config_to_json(session, params)
+                    logger.info(f"[状态评估-确认生成] 配置已保存到config_session.json")
                     session['state'] = ConfigState.GENERATING
                     return create_response(
                         session_id=session_id,
@@ -2142,11 +2487,46 @@ class ReportConfigManager:
                         del self.sessions[session_id]
                     raise ValueError("用户取消了配置")
                 else:
+                    # 在CONFIRMATION状态下，强制从配置文件读取evaluations，确保数据是最新的
+                    # 这样可以处理用户在CONFIRMATION状态下再次点击"确认配置"的情况
+                    try:
+                        config_path, existing_config = self._get_config_file_path(session)
+                        if config_path and existing_config:
+                            report_config = existing_config.get('reportConfig', {})
+                            status_eval = report_config.get('statusEval', {})
+                            evaluations_from_file = status_eval.get('evaluations', [])
+                            if evaluations_from_file:
+                                params['evaluations'] = evaluations_from_file
+                                logger.info(f"[确认状态] 从配置文件读取到 {len(evaluations_from_file)} 个评估项")
+                            else:
+                                # 如果配置文件中没有，确保params中有evaluations（即使为空）
+                                if 'evaluations' not in params:
+                                    params['evaluations'] = []
+                                    logger.warning(f"[确认状态] 配置文件中没有evaluations，使用空列表")
+                        else:
+                            # 如果无法读取配置文件，确保params中有evaluations
+                            if 'evaluations' not in params:
+                                params['evaluations'] = []
+                                logger.warning(f"[确认状态] 无法读取配置文件，使用空列表")
+                    except Exception as e:
+                        logger.warning(f"从配置文件读取评估项失败: {e}")
+                        # 确保params中有evaluations（即使为空）
+                        if 'evaluations' not in params:
+                            params['evaluations'] = []
+                    
+                    # 记录evaluations数量用于调试
+                    evaluations_count = len(params.get('evaluations', []))
+                    logger.info(f"[确认状态] params中有 {evaluations_count} 个评估项")
+                    
+                    # 确认配置页面只显示上一步按钮
+                    suggested_actions = ['上一步']
+                    # 获取配置确认的详细消息
+                    confirmation_message = self.get_step_message(report_type, ConfigState.CONFIRMATION, params)
                     return create_response(
                         session_id=session_id,
                         state=ConfigState.CONFIRMATION,
-                        message="请选择'确认生成'或'取消配置'。",
-                        suggested_actions=['确认生成', '取消配置'],
+                        message=confirmation_message,
+                        suggested_actions=suggested_actions,
                         current_params=params
                     )
             
@@ -2166,7 +2546,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.RUNDOWN_NP_CONFIG,
                         message=self._get_rundown_np_config_message(rundown_np, available_channels),
-                        suggested_actions=['返回上一步', '确认生成'],
+                        suggested_actions=['上一步', '确认生成'],
                         current_params=params
                     )
                 # 如果有Ng通道但没有Np通道，返回到Ng余转时间配置
@@ -2177,7 +2557,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.RUNDOWN_NG_CONFIG,
                         message=self._get_rundown_ng_config_message(rundown_ng, available_channels),
-                        suggested_actions=['返回上一步', '下一步'],
+                        suggested_actions=['上一步', '下一步'],
                         current_params=params
                     )
                 # 如果既没有Ng也没有Np通道，返回到点火时间配置
@@ -2188,7 +2568,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.IGNITION_TIME_CONFIG,
                         message=self._get_ignition_time_config_message(ignition_time, available_channels),
-                        suggested_actions=['返回上一步', '下一步'],
+                        suggested_actions=['上一步', '下一步'],
                         current_params=params
                     )
             elif action == '确认生成':
@@ -2508,13 +2888,22 @@ class ReportConfigManager:
                 }
             }
         elif report_type == ReportType.STATUS_EVAL:
+            # 评估项目定义
+            available_items = [
+                {'id': 'pressureStatus', 'name': '压力传感器状态', 'default_channels': ['Pressure(kPa)', 'Pressure', '压力']},
+                {'id': 'surge', 'name': '喘振', 'default_channels': ['Pressure(kPa)', 'Pressure', '压力']},
+                {'id': 'voltageCurrent', 'name': '电压/电流', 'default_channels': []},  # 需要用户选择
+                {'id': 'flow', 'name': '流量', 'default_channels': []},  # 需要用户选择
+                {'id': 'overTemp', 'name': '超温', 'default_channels': ['Temperature(°C)', 'Temperature', '温度']},
+                {'id': 'overSpeed', 'name': '超转', 'default_channels': ['Ng', 'Np']}
+            ]
+            
             return {
-                'projects': ['overtemp_detection', 'ng_residual_rotation', 'vibration_analysis'],
-                'thresholds': {
-                    'temperature': 200,
-                    'ng_residual': 50,
-                    'vibration': 0.5
-                }
+                'availableChannels': available_channels if available_channels else [],
+                'availableItems': available_items,
+                'selectedItems': [],  # 用户选择的评估项目ID列表
+                'currentItemIndex': 0,  # 当前正在配置的评估项索引
+                'evaluations': []  # 已配置的评估项列表
             }
         else:
             return {}
@@ -2530,11 +2919,6 @@ class ReportConfigManager:
                 return "稳态分析配置 - 第3步：配置参数\n\n您可以修改统计方法、阈值或时间窗口，或直接确认配置。"
             elif state == ConfigState.SELECT_JUDGE_CHANNEL:
                 return "稳态分析配置 - 第4步：选择判断通道\n\n请通过自然语言选择判断通道。"
-        elif report_type == ReportType.STATUS_EVAL:
-            if state == ConfigState.CONFIRMATION:
-                return "状态评估配置确认\n\n状态评估将从配置文件中读取评估项配置。\n\n请确认是否生成状态评估报表？"
-            else:
-                return "状态评估配置"
         elif report_type == ReportType.FUNCTION_CALC:
             params = params or {}
             available_channels = params.get('availableChannels', [])
@@ -2640,10 +3024,106 @@ class ReportConfigManager:
 
 "确认"或"下一步"继续"""
         elif report_type == ReportType.STATUS_EVAL:
-            if state == ConfigState.CHANNEL_SELECTION:
-                return "状态评估配置 - 第1步：选择评估项目\n\n请选择需要评估的项目："
-            elif state == ConfigState.PARAMETER_CONFIG:
-                return "状态评估配置 - 第2步：配置参数\n\n请选择您要修改的参数："
+            params = params or {}
+            if state == ConfigState.STATUS_EVAL_SELECT_ITEMS:
+                available_items = params.get('availableItems', [])
+                selected_items = params.get('selectedItems', [])
+                items_text = "\n".join([f"- {item['name']}" for item in available_items])
+                selected_text = ""
+                if selected_items:
+                    selected_names = [item['name'] for item in available_items if item['id'] in selected_items]
+                    selected_text = f"\n\n【已选择的项目】：{', '.join(selected_names)}"
+                return f"""状态评估配置 - 第1步：选择评估项目
+
+请从以下评估项目中选择需要评估的项目（可多选）：
+
+{items_text}{selected_text}
+
+您可以选择多个项目，选择完成后点击"完成选择"继续。"""
+            elif state == ConfigState.STATUS_EVAL_CONFIG_ITEM:
+                return self._get_status_eval_item_config_message(params)
+            elif state == ConfigState.CONFIRMATION:
+                # 展示所有评估项的评估内容
+                # 确保evaluations是params中的引用，而不是新的空列表
+                if 'evaluations' not in params:
+                    params['evaluations'] = []
+                evaluations = params['evaluations']  # 直接使用params中的引用
+                available_items = params.get('availableItems', [])
+                
+                # 添加调试日志
+                logger.info(f"[get_step_message-CONFIRMATION] evaluations数量: {len(evaluations)}, evaluations内容: {evaluations}")
+                
+                # 评估内容描述映射
+                assessment_content_map = {
+                    'pressureStatus': '检查并判断传感器的工作状态情况。',
+                    'surge': '判断发动机是否发生喘振异常情况。',
+                    'voltageCurrent': '判断电机的工作状态情况。',
+                    'flow': '判断燃油流量测量状态情况。',
+                    'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。',
+                    'overSpeed': '判断发动机转速是否发生超过规定的车台保护值的异常情况。'
+                }
+                
+                # 辅助函数：格式化数值，整数显示为整数，小数保留实际小数位数
+                def format_number(value):
+                    """格式化数值：整数显示为整数，小数保留实际小数位数"""
+                    if value is None:
+                        return '未设置'
+                    if isinstance(value, (int, float)):
+                        # 如果是整数（即使存储为float），显示为整数
+                        if isinstance(value, float) and value.is_integer():
+                            return str(int(value))
+                        # 如果是小数，转换为字符串会自动去除末尾的0
+                        return str(value).rstrip('0').rstrip('.')
+                    return str(value)
+                
+                eval_content_lines = ["**配置确认**："]
+                
+                if evaluations:
+                    for eval_item in evaluations:
+                        item_id = eval_item.get('item', '')
+                        item_name = eval_item.get('assessmentName', '')
+                        # 如果assessmentName不存在，从available_items中查找
+                        if not item_name:
+                            item_obj = next((item for item in available_items if item.get('id') == item_id), None)
+                            item_name = item_obj.get('name', item_id) if item_obj else item_id
+                        
+                        eval_content_lines.append(f"\n\n**{item_name}**")
+                        
+                        # 添加评估内容描述
+                        assessment_content = assessment_content_map.get(item_id, '')
+                        if assessment_content:
+                            eval_content_lines.append(f"\n评估内容：{assessment_content}")
+                        
+                        conditions = eval_item.get('conditions', [])
+                        if conditions:
+                            # 每个条件单独一行显示
+                            for i, condition in enumerate(conditions, 1):
+                                # 检查是否只有通道信息（没有其他条件参数）
+                                has_other_params = any(key in condition for key in ['statistic', 'duration', 'logic', 'threshold'])
+                                
+                                if has_other_params:
+                                    # 有条件参数，将条件信息压缩为一行
+                                    statistic = condition.get('statistic', '平均值')
+                                    # 如果是喘振评估项且统计方法是差值计算，添加（不可修改）标识
+                                    if item_id == 'surge' and statistic == '差值计算':
+                                        statistic += '（不可修改）'
+                                    # 使用format_number格式化数值
+                                    duration_str = format_number(condition.get('duration', 1))
+                                    threshold_str = format_number(condition.get('threshold', 100))
+                                    condition_line = f"\n条件{i}：监控通道: {condition.get('channel', '未设置')}, 统计方法: {statistic}, 持续时长: {duration_str}秒, 判断依据: {condition.get('logic', '>')}, 阈值: {threshold_str}"
+                                    eval_content_lines.append(condition_line)
+                                else:
+                                    # 只有通道信息，不显示"条件i："
+                                    condition_line = f"\n监控通道: {condition.get('channel', '未设置')}"
+                                    eval_content_lines.append(condition_line)
+                        else:
+                            eval_content_lines.append("\n  未配置条件")
+                else:
+                    eval_content_lines.append("\n\n未配置评估项")
+                
+                eval_content_lines.append("\n\n请点击上方 **完成配置** 按钮进行报表生成。")
+                
+                return '\n\n'.join(eval_content_lines)
         
         return "请选择下一步操作："
     
@@ -2658,6 +3138,26 @@ class ReportConfigManager:
             return actions
         return []
     
+    def get_status_eval_item_options(self, params: Optional[Dict[str, Any]] = None) -> List[str]:
+        """获取状态评估项目选择选项"""
+        params = params or {}
+        available_items = params.get('availableItems', [])
+        selected_items = params.get('selectedItems', [])
+        
+        actions = []
+        for item in available_items:
+            item_id = item['id']
+            item_name = item['name']
+            if item_id in selected_items:
+                actions.append(f"取消选择 {item_name}")
+            else:
+                actions.append(f"选择 {item_name}")
+        
+        if selected_items:
+            actions.append("完成选择")
+        
+        return actions
+    
     def get_current_actions(self, state: ConfigState, report_type: str, params: Optional[Dict[str, Any]] = None) -> List[str]:
         """获取当前状态的操作选项"""
         if state == ConfigState.DISPLAY_CHANNELS:
@@ -2668,6 +3168,26 @@ class ReportConfigManager:
             return []  # 使用自然语言对话，不使用无法直接触发的按钮（如'修改统计方法'等）
         elif state == ConfigState.SELECT_JUDGE_CHANNEL:
             return []  # 通过自然语言选择，不使用按钮
+        elif state == ConfigState.STATUS_EVAL_SELECT_ITEMS:
+            return []  # 状态评估使用弹窗选择，不显示建议操作
+        elif state == ConfigState.STATUS_EVAL_CONFIG_ITEM:
+            # 状态评估配置项：显示上一步和下一步/确认配置按钮
+            params = params or {}
+            current_item_index = params.get('currentItemIndex', 0)
+            selected_items = params.get('selectedItems', [])
+            total_items = len(selected_items)
+            
+            actions = []
+            # 如果不是第一个评估项，显示"上一步"
+            if current_item_index > 0:
+                actions.append('上一步')
+            # 如果是最后一个评估项，显示"确认配置"；否则显示"下一步"
+            if current_item_index < total_items:
+                if current_item_index == total_items - 1:
+                    actions.append('确认配置')
+                else:
+                    actions.append('下一步')
+            return actions
         elif state == ConfigState.CONFIRMATION:
             return []
         elif state == ConfigState.GENERATING:
@@ -2738,57 +3258,30 @@ class ReportConfigManager:
         return '\n'.join(config_lines)
 
     def _get_config_file_path(self, session: Dict[str, Any]) -> tuple[Path, Dict[str, Any]]:
-        """获取配置文件的路径和现有配置"""
+        """获取配置文件的路径和现有配置 - 统一使用config_session.json"""
         backend_dir = Path(__file__).resolve().parent.parent.parent  # backend 目录
         config_dir = backend_dir / "config_sessions"
         config_dir.mkdir(parents=True, exist_ok=True)
         
-        # 通过file_id查找对应的JSON文件
-        file_id = session.get('file_id')
-        config_path = None
+        # 统一使用 config_session.json
+        config_path = config_dir / "config_session.json"
         existing_config = {}
         
-        if file_id:
-            # 查找所有JSON文件，找到fileId匹配的
-            for json_file in config_dir.glob("*.json"):
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        cfg = json.load(f)
-                        if cfg.get("fileId") == file_id:
-                            config_path = json_file
-                            existing_config = cfg
-                            break
-                except Exception:
-                    continue
-        
-        # 如果没找到，尝试使用默认的 config_session.json
-        if config_path is None:
-            # 首先尝试查找是否有固定名称的 config_session.json
-            default_path = config_dir / "config_session.json"
-            if default_path.exists():
-                try:
-                    with open(default_path, 'r', encoding='utf-8') as f:
-                        existing_config = json.load(f)
-                        # 如果file_id匹配，使用它；否则仍使用这个文件
-                        if not file_id or existing_config.get("fileId") == file_id:
-                            config_path = default_path
-                except Exception:
-                    pass
-        
-        # 如果还是没找到，创建一个新的（使用时间戳格式，包含毫秒）
-        if config_path is None:
-            timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]  # 包含毫秒
-            config_path = config_dir / f"{timestamp_str}.json"
-            existing_config = {}
-        
-        # 读取现有配置（如果找到了文件但还没读取）
-        if config_path.exists() and not existing_config:
+        # 读取现有配置（如果文件存在）
+        if config_path.exists():
             try:
                 with open(config_path, 'r', encoding='utf-8') as f:
                     existing_config = json.load(f)
+                logger.debug(f"读取现有配置文件: {config_path}")
             except Exception as read_err:
                 logger.warning(f"读取已有配置文件失败: {read_err}")
                 existing_config = {}
+        
+        # 确保fileId存在（从session中获取）
+        file_id = session.get('file_id')
+        if file_id and 'fileId' not in existing_config:
+            existing_config['fileId'] = file_id
+            logger.info(f"添加fileId到配置: {file_id}")
         
         return config_path, existing_config
 
@@ -3077,6 +3570,571 @@ class ReportConfigManager:
 注意：监控通道固定为Np，不可修改。
 
 修改完成后输入"确认"继续。"""
+    
+    def _get_status_eval_item_config_message(self, params: Dict[str, Any]) -> str:
+        """生成状态评估项配置消息"""
+        available_channels = params.get('availableChannels', [])
+        available_items = params.get('availableItems', [])
+        selected_items = params.get('selectedItems', [])
+        current_item_index = params.get('currentItemIndex', 0)
+        evaluations = params.get('evaluations', [])
+        
+        if current_item_index >= len(selected_items):
+            return "所有评估项已配置完成。"
+        
+        # 获取当前正在配置的评估项
+        current_item_id = selected_items[current_item_index]
+        current_item = next((item for item in available_items if item['id'] == current_item_id), None)
+        
+        if not current_item:
+            return "评估项配置错误。"
+        
+        # 获取当前评估项的配置（如果已存在）
+        current_eval = next((eval for eval in evaluations if eval.get('item') == current_item_id), None)
+        
+        if not current_eval:
+            # 初始化默认配置
+            current_eval = self._init_status_eval_item_config(current_item, available_channels)
+            # 将初始化的配置添加到evaluations中
+            evaluations.append(current_eval)
+            params['evaluations'] = evaluations
+        
+        item_name = current_item['name']
+        channels_text = f"\n\n【可用通道】：{', '.join(available_channels)}\n" if available_channels else ""
+        
+        # 评估内容描述映射
+        assessment_content_map = {
+            'pressureStatus': '检查并判断传感器的工作状态情况。',
+            'surge': '判断发动机是否发生喘振异常情况。',
+            'voltageCurrent': '判断电机的工作状态情况。',
+            'flow': '判断燃油流量测量状态情况。',
+            'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。',
+            'overSpeed': '判断发动机转速是否发生超过规定的车台保护值的异常情况。'
+        }
+        
+        # 获取评估内容描述
+        assessment_content = assessment_content_map.get(current_item_id, '')
+        assessment_content_text = f"{assessment_content}\n" if assessment_content else ""
+        
+        # 构建条件显示
+        conditions_text = ""
+        if current_eval.get('conditions'):
+            for i, condition in enumerate(current_eval['conditions'], 1):
+                # 检查是否只有通道信息（没有其他条件参数）
+                has_other_params = any(key in condition for key in ['statistic', 'duration', 'logic', 'threshold'])
+                
+                if has_other_params:
+                    # 有条件参数，显示"条件i："
+                    conditions_text += f"\n条件{i}：\n"
+                else:
+                    # 只有通道信息，不显示"条件i："
+                    conditions_text += "\n"
+                
+                conditions_text += f"- 监控通道: {condition.get('channel', '未设置')}\n"
+                
+                if has_other_params:
+                    statistic = condition.get('statistic', '平均值')
+                    # 如果是喘振评估项且统计方法是差值计算，添加（不可修改）标识
+                    if current_item_id == 'surge' and statistic == '差值计算':
+                        statistic += '（不可修改）'
+                    conditions_text += f"- 统计方法: {statistic}\n"
+                    conditions_text += f"- 持续时长: {condition.get('duration', 1)}秒\n"
+                    conditions_text += f"- 判断依据: {condition.get('logic', '>')}\n"
+                    conditions_text += f"- 阈值: {condition.get('threshold', 100)}\n"
+        
+        progress_text = f"（{current_item_index + 1}/{len(selected_items)}）"
+        
+        return f"""配置评估项参数{progress_text}
+
+【评估项目】：{item_name}{channels_text}
+【评估内容】：{assessment_content_text}{conditions_text}
+
+修改完成后点击"下一步"继续配置下一个评估项，或点击"上一步"返回。"""
+    
+    def _init_status_eval_item_config(self, item: Dict[str, Any], available_channels: List[str]) -> Dict[str, Any]:
+        """初始化评估项的默认配置"""
+        item_id = item['id']
+        item_name = item['name']
+        default_channels = item.get('default_channels', [])
+        
+        # 查找默认通道
+        def find_channel(priorities: List[str]) -> Optional[str]:
+            """从available_channels中查找优先级最高的通道"""
+            for priority in priorities:
+                for ch in available_channels:
+                    if ch.lower() == priority.lower():
+                        return ch
+            return available_channels[0] if available_channels else None
+        
+        # 根据评估项类型初始化配置
+        if item_id == 'pressureStatus':
+            # 压力传感器状态：需要多个通道（默认2个）
+            channels = []
+            pressure_ch = find_channel(default_channels)
+            if pressure_ch:
+                channels.append(pressure_ch)
+            # 如果还有其他压力相关通道，也添加
+            for ch in available_channels:
+                if ch.lower() in ['pressure', '压力'] and ch not in channels:
+                    channels.append(ch)
+                    if len(channels) >= 2:
+                        break
+            if not channels and available_channels:
+                channels = [available_channels[0]]
+            
+            conditions = [
+                {
+                    'channel': ch,
+                    'statistic': '平均值',
+                    'duration': 1,
+                    'logic': '>',
+                    'threshold': 100
+                }
+                for ch in channels
+            ]
+        elif item_id == 'surge':
+            # 喘振：使用difference统计方法
+            channel = find_channel(default_channels) or (available_channels[0] if available_channels else None)
+            conditions = [{
+                'channel': channel,
+                'statistic': '差值计算',
+                'duration': 10,
+                'logic': '>',
+                'threshold': 100
+            }] if channel else []
+        elif item_id == 'voltageCurrent':
+            # 电压/电流：需要多个通道（默认3个），每个通道使用不同的参数配置
+            channels = available_channels[:3] if available_channels else []
+            conditions = []
+            
+            # 为不同通道定义不同的默认配置
+            default_configs = [
+                {
+                    'statistic': '平均值',
+                    'duration': 1.0,
+                    'logic': '>',
+                    'threshold': 220.0
+                },
+                {
+                    'statistic': '有效值',
+                    'duration': 1.5,
+                    'logic': '>',
+                    'threshold': 10.0
+                },
+                {
+                    'statistic': '最大值',
+                    'duration': 2.0,
+                    'logic': '>',
+                    'threshold': 50.0
+                }
+            ]
+            
+            for idx, ch in enumerate(channels):
+                # 根据通道名称智能推断配置
+                ch_lower = ch.lower()
+                if '电压' in ch_lower or 'voltage' in ch_lower:
+                    # 电压通道：使用平均值，阈值220
+                    config = {
+                        'statistic': '平均值',
+                        'duration': 1.0,
+                        'logic': '>',
+                        'threshold': 220.0
+                    }
+                elif '电流' in ch_lower or 'current' in ch_lower:
+                    # 电流通道：使用有效值，阈值10
+                    config = {
+                        'statistic': '有效值',
+                        'duration': 1.0,
+                        'logic': '>',
+                        'threshold': 10.0
+                    }
+                else:
+                    # 其他通道：使用预设的默认配置（循环使用）
+                    config = default_configs[idx % len(default_configs)].copy()
+                    # 调整阈值以区分不同通道
+                    config['threshold'] = 100.0 + idx * 20.0
+                
+                conditions.append({
+                    'channel': ch,
+                    **config
+                })
+        elif item_id == 'flow':
+            # 流量：需要多个通道（默认2个），每个通道使用不同的参数配置
+            channels = available_channels[:2] if available_channels else []
+            conditions = []
+            
+            # 为不同通道定义不同的默认配置
+            default_configs = [
+                {
+                    'statistic': '平均值',
+                    'duration': 1.0,
+                    'logic': '>',
+                    'threshold': 100.0
+                },
+                {
+                    'statistic': '最大值',
+                    'duration': 2.0,
+                    'logic': '>',
+                    'threshold': 150.0
+                }
+            ]
+            
+            for idx, ch in enumerate(channels):
+                # 根据通道名称智能推断配置
+                ch_lower = ch.lower()
+                if '流量' in ch_lower or 'flow' in ch_lower:
+                    # 如果通道名包含流量关键词，使用预设配置
+                    config = default_configs[idx % len(default_configs)].copy()
+                    # 调整阈值以区分不同通道
+                    config['threshold'] = 100.0 + idx * 50.0
+                else:
+                    # 使用预设的默认配置
+                    config = default_configs[idx % len(default_configs)].copy()
+                    # 调整阈值以区分不同通道
+                    config['threshold'] = 100.0 + idx * 50.0
+                
+                conditions.append({
+                    'channel': ch,
+                    **config
+                })
+        elif item_id == 'overTemp':
+            # 超温：使用温度通道
+            channel = find_channel(default_channels) or (available_channels[0] if available_channels else None)
+            conditions = [{
+                'channel': channel,
+                'statistic': '瞬时值',
+                'duration': 1,
+                'logic': '<',
+                'threshold': 850
+            }] if channel else []
+        elif item_id == 'overSpeed':
+            # 超转：使用Ng或Np通道
+            channel = find_channel(default_channels) or (available_channels[0] if available_channels else None)
+            conditions = [{
+                'channel': channel,
+                'statistic': '瞬时值',
+                'duration': 1,
+                'logic': '<',
+                'threshold': 18000
+            }] if channel else []
+        else:
+            conditions = []
+        
+        return {
+            'item': item_id,
+            'assessmentName': item_name,
+            'conditions': conditions
+        }
+    
+    def _handle_status_eval_item_modification(
+        self, action: str, value: Any, current_eval: Dict[str, Any], 
+        available_channels: List[str], current_item: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """处理状态评估项参数的自然语言修改
+        返回: {'modified': bool, 'changes': List[Dict]}，其中changes包含修改的参数信息
+        注意：只有真正修改成功（新值和旧值不同）才会记录到changes中
+        """
+        import re
+        modified = False
+        changes = []
+        conditions = current_eval.get('conditions', [])
+        
+        # 支持多参数修改：尝试分割action（通过逗号、顿号、和、以及等）
+        # 例如："把条件一的通道改为np，阈值改为2000"
+        # 例如："修改条件一的通道为np，阈值200，条件二的判断依据小于，条件三的阈值200"
+        action_parts = []
+        if '，' in action or ',' in action:
+            # 有明确分隔符，按分隔符分割
+            parts = re.split(r'[，,]\s*', action)
+            action_parts = [part.strip() for part in parts if part.strip()]
+        elif '和' in action or '以及' in action:
+            # 使用"和"或"以及"分割
+            parts = re.split(r'(?:和|以及)\s*', action)
+            action_parts = [part.strip() for part in parts if part.strip()]
+        else:
+            # 单个action
+            action_parts = [action]
+        
+        # 处理每个action部分，支持条件编号继承（如果当前部分没有条件编号，继承前一个部分的条件编号）
+        last_condition_index = None
+        last_condition_name = None
+        
+        for action_part in action_parts:
+            # 处理条件修改（条件1、条件2等）
+            condition_index = None
+            condition_name = None
+            if '条件1' in action_part or '条件一' in action_part:
+                condition_index = 0
+                condition_name = '条件一'
+            elif '条件2' in action_part or '条件二' in action_part:
+                condition_index = 1
+                condition_name = '条件二'
+            elif '条件3' in action_part or '条件三' in action_part:
+                condition_index = 2
+                condition_name = '条件三'
+            elif '条件' in action_part:
+                # 尝试提取条件编号
+                match = re.search(r'条件(\d+)', action_part)
+                if match:
+                    condition_index = int(match.group(1)) - 1
+                    condition_name = f'条件{int(match.group(1))}'
+            
+            # 如果没有指定条件编号，尝试继承前一个部分的条件编号
+            if condition_index is None:
+                if last_condition_index is not None:
+                    # 继承前一个部分的条件编号
+                    condition_index = last_condition_index
+                    condition_name = last_condition_name
+                elif conditions:
+                    # 如果前面也没有条件编号，默认修改第一个条件
+                    condition_index = 0
+                    condition_name = '条件一'
+            
+            # 更新last_condition，供下一个部分使用
+            if condition_index is not None:
+                last_condition_index = condition_index
+                last_condition_name = condition_name
+            
+            if condition_index is not None and condition_index < len(conditions):
+                condition = conditions[condition_index]
+                
+                # 处理通道修改
+                if '通道' in action_part or 'channel' in action_part.lower():
+                    # 从当前action_part中提取通道值
+                    part_value = value
+                    if not part_value:
+                        # 尝试从action_part中提取通道名称
+                        part_value = None
+                        for channel in available_channels:
+                            if channel.lower() in action_part.lower():
+                                part_value = channel
+                                break
+                    
+                    new_channel = self._match_channel_name(part_value, action_part, available_channels)
+                    if new_channel:
+                        old_channel = condition.get('channel')
+                        if old_channel != new_channel:  # 只有值不同时才修改
+                            condition['channel'] = new_channel
+                            modified = True
+                            changes.append({
+                                'param': '监控通道',
+                                'value': new_channel,
+                                'condition': condition_name
+                            })
+                
+                # 处理统计方法修改
+                if '统计方法' in action_part or '统计' in action_part:
+                    statistic_map = {
+                        '平均值': '平均值', '平均': '平均值',
+                        '最大值': '最大值', '最大': '最大值',
+                        '最小值': '最小值', '最小': '最小值',
+                        '有效值': '有效值', '有效': '有效值',
+                        '瞬时值': '瞬时值', '瞬时': '瞬时值',
+                        'difference': 'difference', '差值': 'difference', '差异': 'difference'
+                    }
+                    part_value = value
+                    if part_value:
+                        new_statistic = statistic_map.get(str(part_value), str(part_value))
+                    else:
+                        # 尝试从action_part中提取
+                        new_statistic = None
+                        for key, val in statistic_map.items():
+                            if key in action_part:
+                                new_statistic = val
+                                break
+                    
+                    if new_statistic:
+                        old_statistic = condition.get('statistic')
+                        if old_statistic != new_statistic:  # 只有值不同时才修改
+                            condition['statistic'] = new_statistic
+                            modified = True
+                            changes.append({
+                                'param': '统计方法',
+                                'value': new_statistic,
+                                'condition': condition_name
+                            })
+                
+                # 处理持续时长修改
+                if '持续时长' in action_part or '时长' in action_part or 'duration' in action_part.lower():
+                    part_value = value
+                    duration = None
+                    if part_value is not None:
+                        try:
+                            duration = float(part_value)
+                        except (ValueError, TypeError):
+                            duration = None
+                    else:
+                        # 尝试从action_part中提取数字
+                        match = re.search(r'(\d+\.?\d*)\s*秒', action_part)
+                        if match:
+                            try:
+                                duration = float(match.group(1))
+                            except (ValueError, TypeError):
+                                duration = None
+                    
+                    if duration is not None and 0.1 <= duration <= 50:
+                        old_duration = condition.get('duration')
+                        if old_duration is None or abs(old_duration - duration) > 0.001:  # 只有值不同时才修改（考虑浮点数精度）
+                            condition['duration'] = duration
+                            modified = True
+                            changes.append({
+                                'param': '持续时长',
+                                'value': f'{duration}秒',
+                                'condition': condition_name
+                            })
+                
+                # 处理判断依据修改
+                if '判断依据' in action_part or '逻辑' in action_part or '判据' in action_part:
+                    logic_map = {
+                        '大于': '>', '>': '>',
+                        '小于': '<', '<': '<',
+                        '大于等于': '>=', '>=': '>=',
+                        '小于等于': '<=', '<=': '<=',
+                        '等于': '==', '==': '=='
+                    }
+                    logic_display_map = {
+                        '>': '大于',
+                        '<': '小于',
+                        '>=': '大于等于',
+                        '<=': '小于等于',
+                        '==': '等于'
+                    }
+                    part_value = value
+                    if part_value:
+                        new_logic = logic_map.get(str(part_value), str(part_value))
+                    else:
+                        # 尝试从action_part中提取
+                        new_logic = None
+                        for key, val in logic_map.items():
+                            if key in action_part:
+                                new_logic = val
+                                break
+                    
+                    if new_logic:
+                        old_logic = condition.get('logic')
+                        if old_logic != new_logic:  # 只有值不同时才修改
+                            condition['logic'] = new_logic
+                            modified = True
+                            display_logic = logic_display_map.get(new_logic, new_logic)
+                            changes.append({
+                                'param': '判断依据',
+                                'value': display_logic,
+                                'condition': condition_name
+                            })
+                
+                # 处理阈值修改
+                if '阈值' in action_part or 'threshold' in action_part.lower():
+                    part_value = value
+                    threshold_value = None
+                    if part_value is not None:
+                        try:
+                            threshold_value = float(part_value)
+                        except (ValueError, TypeError):
+                            threshold_value = None
+                    else:
+                        # 尝试从action_part中提取数字
+                        match = re.search(r'(\d+\.?\d*)', action_part)
+                        if match:
+                            try:
+                                threshold_value = float(match.group(1))
+                            except (ValueError, TypeError):
+                                threshold_value = None
+                    
+                    if threshold_value is not None:
+                        old_threshold = condition.get('threshold')
+                        if old_threshold is None or abs(old_threshold - threshold_value) > 0.001:  # 只有值不同时才修改（考虑浮点数精度）
+                            condition['threshold'] = threshold_value
+                            modified = True
+                            changes.append({
+                                'param': '阈值',
+                                'value': str(threshold_value),
+                                'condition': condition_name
+                            })
+        
+        return {'modified': modified, 'changes': changes}
+    
+    def _save_status_eval_config_to_json(self, session: Dict[str, Any], params: Dict[str, Any]) -> None:
+        """保存状态评估配置到JSON文件"""
+        try:
+            config_path, existing_config = self._get_config_file_path(session)
+            
+            # 逻辑值转换映射（中文转符号）
+            logic_map = {
+                '大于': '>',
+                '小于': '<',
+                '大于等于': '>=',
+                '小于等于': '<=',
+                '等于': '==',
+                '>': '>',
+                '<': '<',
+                '>=': '>=',
+                '<=': '<=',
+                '==': '=='
+            }
+            
+            # 构建状态评估配置
+            if 'reportConfig' not in existing_config:
+                existing_config['reportConfig'] = {}
+            if 'statusEval' not in existing_config['reportConfig']:
+                existing_config['reportConfig']['statusEval'] = {}
+            
+            status_eval = existing_config['reportConfig']['statusEval']
+            evaluations = params.get('evaluations', [])
+            
+            # 设置全局默认值（从第一个评估项中提取，如果所有评估项都有相同的值）
+            # 或者使用默认值
+            default_type = 'continuous_check'
+            default_condition_logic = 'AND'
+            
+            # 尝试从第一个评估项中提取（如果存在且所有评估项都相同）
+            if evaluations:
+                first_type = evaluations[0].get('type')
+                first_logic = evaluations[0].get('conditionLogic')
+                
+                # 检查是否所有评估项都有相同的type和conditionLogic
+                all_same_type = all(eval_item.get('type', first_type) == first_type for eval_item in evaluations)
+                all_same_logic = all(eval_item.get('conditionLogic', first_logic) == first_logic for eval_item in evaluations)
+                
+                if all_same_type and first_type:
+                    default_type = first_type
+                if all_same_logic and first_logic:
+                    default_condition_logic = first_logic
+            
+            # 设置全局默认值
+            status_eval['type'] = default_type
+            status_eval['conditionLogic'] = default_condition_logic
+            
+            # 转换evaluations格式（移除type和conditionLogic，因为它们现在是全局的）
+            status_eval['evaluations'] = []
+            for eval_item in evaluations:
+                eval_config = {
+                    'item': eval_item.get('item'),
+                    'assessmentName': eval_item.get('assessmentName'),
+                    'conditions': []
+                }
+                
+                # 转换conditions
+                for condition in eval_item.get('conditions', []):
+                    cond_config = {
+                        'channel': condition.get('channel'),
+                        'statistic': condition.get('statistic', '平均值'),
+                        'duration': condition.get('duration', 1),
+                        'logic': logic_map.get(condition.get('logic', '>'), '>'),
+                        'threshold': condition.get('threshold', 100)
+                    }
+                    eval_config['conditions'].append(cond_config)
+                
+                status_eval['evaluations'].append(eval_config)
+            
+            # 保存到文件
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(existing_config, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"已保存状态评估配置到: {config_path}")
+        except Exception as e:
+            logger.error(f"保存状态评估配置到JSON文件失败: {e}", exc_info=True)
+            import traceback
+            traceback.print_exc()
     
     def _save_function_calc_config_to_json(self, session: Dict[str, Any], params: Dict[str, Any]) -> None:
         """保存功能计算配置到JSON文件"""
@@ -3880,19 +4938,70 @@ async def update_report_config(request: ConfigUpdateRequest):
                 # 优化响应消息，显示成功和失败的操作
                 logger.info(f"[汇总消息] success_count: {success_count}, success_details数量: {len(success_details)}, details: {success_details}")
                 
-                # 构建汇总消息：将多个"已更改"消息合并为一行，用逗号分隔
+                # 构建汇总消息：按条件分组，合并同一条件的修改
                 success_msg = ""
                 if success_details and len(success_details) > 0:
-                    # 将所有修改信息合并为一行，格式："已更改监控通道为滑油压力，判断依据为<，阈值为200。"
-                    # 提取每个修改的参数名称和值
-                    changes = []
+                    # 按条件分组
+                    condition_groups = {}  # {条件名: [修改列表]}
+                    other_changes = []  # 不包含条件名的修改
+                    
                     for detail in success_details:
-                        # detail格式："已更改{field_name}为{value}"
+                        # detail格式："已更改{field_name}为{value}" 或 "已更改条件一的{field_name}为{value}"
                         if '已更改' in detail and '为' in detail:
                             # 提取"已更改"后面的内容
                             change_part = detail.replace('已更改', '').strip()
-                            if change_part:
-                                changes.append(change_part)
+                            # 去掉开头的冒号（中文冒号和英文冒号）
+                            change_part = change_part.lstrip('：:')
+                            if not change_part:
+                                continue
+                            
+                            # 检查是否包含条件名（条件一、条件二、条件三等）
+                            condition_name = None
+                            for cond in ['条件一', '条件二', '条件三']:
+                                if change_part.startswith(cond):
+                                    condition_name = cond
+                                    # 去掉条件名前缀，提取实际的修改内容
+                                    param_part = change_part[len(cond):].lstrip('的').strip()
+                                    
+                                    # 检查是否只有通道修改（没有其他条件参数）
+                                    # 如果只有"监控通道为X"或"通道为X"，且没有其他参数，则不显示条件前缀
+                                    is_channel_only = False
+                                    if param_part.startswith('监控通道为') or param_part.startswith('通道为'):
+                                        # 检查是否只包含通道信息，不包含其他参数（阈值、统计方法、持续时长、判断依据等）
+                                        other_keywords = ['阈值为', '统计方法为', '持续时长为', '判断依据为', '阈值为', '统计方法', '持续时长', '判断依据']
+                                        has_other_params = any(keyword in param_part for keyword in other_keywords)
+                                        if not has_other_params:
+                                            is_channel_only = True
+                                    
+                                    if is_channel_only:
+                                        # 只有通道修改，不显示条件前缀，直接添加到other_changes
+                                        other_changes.append(param_part)
+                                    else:
+                                        # 有条件参数修改，按条件分组
+                                        if condition_name not in condition_groups:
+                                            condition_groups[condition_name] = []
+                                        condition_groups[condition_name].append(param_part)
+                                    break
+                            
+                            if not condition_name:
+                                # 不包含条件名的修改，直接添加
+                                other_changes.append(change_part)
+                    
+                    # 按条件顺序构建消息（条件一、条件二、条件三）
+                    changes = []
+                    for cond in ['条件一', '条件二', '条件三']:
+                        if cond in condition_groups:
+                            # 合并同一条件的多个修改，用逗号分隔
+                            cond_changes = condition_groups[cond]
+                            if cond_changes:
+                                # 只保留一个条件名前缀
+                                combined = f"{cond}的{cond_changes[0]}"
+                                if len(cond_changes) > 1:
+                                    combined += "，" + "，".join(cond_changes[1:])
+                                changes.append(combined)
+                    
+                    # 添加其他不包含条件名的修改
+                    changes.extend(other_changes)
                     
                     logger.info(f"[汇总消息-提取的changes] {changes}")
                     if changes:

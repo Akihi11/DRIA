@@ -48,9 +48,8 @@ async def generate_status_evaluation_report(request: StatusEvaluationRequest):
     {
         "item": "评估项ID",
         "assessmentName": "评估项目名称",
-        "assessmentContent": "评估内容描述",
-        "type": "continuous_check",
-        "conditionLogic": "AND",
+        "type": "continuous_check",  # 可选，如果所有评估项相同，会自动提取为全局默认值
+        "conditionLogic": "AND",     # 可选，如果所有评估项相同，会自动提取为全局默认值
         "conditions": [
             {
                 "channel": "通道名",
@@ -61,6 +60,9 @@ async def generate_status_evaluation_report(request: StatusEvaluationRequest):
             }
         ]
     }
+    
+    注意：如果所有评估项的 type 和 conditionLogic 都相同，它们会被提取到 statusEval 层级作为全局默认值。
+    如果某个评估项需要不同的值，可以在该评估项中单独指定。
     """
     try:
         # 1. 获取数据文件路径
@@ -88,10 +90,39 @@ async def generate_status_evaluation_report(request: StatusEvaluationRequest):
             config_path = temp_config_dir / "config.json"
             
             # 构建配置
+            # 提取全局默认值（从第一个评估项中提取，如果所有评估项都有相同的值）
+            default_type = 'continuous_check'
+            default_condition_logic = 'AND'
+            
+            if request.evaluations:
+                first_type = request.evaluations[0].get('type')
+                first_logic = request.evaluations[0].get('conditionLogic')
+                
+                # 检查是否所有评估项都有相同的type和conditionLogic
+                all_same_type = all(eval_item.get('type', first_type) == first_type for eval_item in request.evaluations)
+                all_same_logic = all(eval_item.get('conditionLogic', first_logic) == first_logic for eval_item in request.evaluations)
+                
+                if all_same_type and first_type:
+                    default_type = first_type
+                if all_same_logic and first_logic:
+                    default_condition_logic = first_logic
+            
+            # 构建evaluations（移除type和conditionLogic，因为它们现在是全局的）
+            evaluations_clean = []
+            for eval_item in request.evaluations:
+                eval_clean = {
+                    'item': eval_item.get('item'),
+                    'assessmentName': eval_item.get('assessmentName'),
+                    'conditions': eval_item.get('conditions', [])
+                }
+                evaluations_clean.append(eval_clean)
+            
             config = {
                 "reportConfig": {
                     "statusEval": {
-                        "evaluations": request.evaluations
+                        "type": default_type,
+                        "conditionLogic": default_condition_logic,
+                        "evaluations": evaluations_clean
                     }
                 }
             }

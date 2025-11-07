@@ -85,11 +85,18 @@ class StatusEvaluationService:
         status_eval = report_config.get('statusEval', {})
         evaluations_config = status_eval.get('evaluations', [])
         
+        # 获取全局默认值（从statusEval层级）
+        default_type = status_eval.get('type', 'continuous_check')
+        default_condition_logic = status_eval.get('conditionLogic', 'AND')
+        
         # 解析评估项
         evaluations = []
         for eval_config in evaluations_config:
+            # 获取评估项的类型和条件逻辑，优先使用评估项中的值，如果没有则使用全局默认值
+            eval_type = eval_config.get('type', default_type)
+            condition_logic = eval_config.get('conditionLogic', default_condition_logic)
+            
             # 跳过functional_result类型（这次不实现）
-            eval_type = eval_config.get('type', '')
             if eval_type == 'functional_result':
                 logger.info(f"跳过functional_result类型评估项: {eval_config.get('item', 'unknown')}")
                 continue
@@ -123,9 +130,8 @@ class StatusEvaluationService:
             evaluation = EvaluationItem(
                 item=eval_config.get('item', ''),
                 assessment_name=eval_config.get('assessmentName', eval_config.get('item', '')),
-                assessment_content=eval_config.get('assessmentContent', ''),
                 type=eval_type,
-                condition_logic=eval_config.get('conditionLogic', 'AND'),
+                condition_logic=condition_logic,
                 conditions=conditions
             )
             evaluations.append(evaluation)

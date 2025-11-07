@@ -28,7 +28,6 @@ class EvaluationItem:
     """评估项配置"""
     item: str  # 评估项ID
     assessment_name: str  # 评估项目名称
-    assessment_content: str  # 评估内容
     type: str  # continuous_check 或 functional_result
     condition_logic: str  # AND 或 OR
     conditions: List[EvaluationCondition]

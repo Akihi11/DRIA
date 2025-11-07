@@ -34,6 +34,8 @@ def _is_config_state(state: str) -> bool:
     - 稳态配置：parameter_config
     - 功能计算配置：time_base_config, startup_time_config, ignition_time_config, 
                      rundown_ng_config, rundown_np_config
+    - 状态评估配置：status_eval_config_item, status_eval_select_items
+    - 其他配置状态：display_channels, trigger_combo, select_judge_channel
     """
     config_states = {
         "parameter_config",  # 稳态配置
@@ -42,6 +44,11 @@ def _is_config_state(state: str) -> bool:
         "ignition_time_config",  # 功能计算：点火时间配置
         "rundown_ng_config",  # 功能计算：Ng余转时间配置
         "rundown_np_config",  # 功能计算：Np余转时间配置
+        "status_eval_config_item",  # 状态评估：配置评估项参数
+        "status_eval_select_items",  # 状态评估：选择评估项目
+        "display_channels",  # 选择展示通道
+        "trigger_combo",  # 选择条件组合逻辑
+        "select_judge_channel",  # 选择判断通道
     }
     return state in config_states
 
@@ -59,19 +66,26 @@ def _build_summary_message(all_responses: list, final_response, failed_actions: 
     """
     # 汇总所有成功的修改信息
     success_details = []
-    for msg in all_responses:
+    logger.info(f"[汇总消息-辅助函数] 开始处理，all_responses数量: {len(all_responses)}")
+    for idx, msg in enumerate(all_responses):
         if msg:
+            logger.info(f"[汇总消息-辅助函数] 处理消息 {idx+1}: {msg[:200]}...")
             # 移除可能的step前缀（如"[step1]"或"[step2]"）
             msg_clean = msg.split(']', 1)[-1].strip() if ']' in msg else msg.strip()
-            # 使用正则表达式提取"已更改XXX为YYY"的消息
-            pattern = r'已更改[^。\n]*?为[^。\n]*?(?=[。\n]|$)'
+            # 使用正则表达式提取"已更改XXX为YYY"的消息（支持"为"前后可能有空格）
+            # 改进正则：匹配"已更改"到"为"之间的内容，以及"为"到句号/换行之间的内容
+            pattern = r'已更改[^。\n]*?为\s*[^。\n]*?(?=[。\n]|$)'
             matches = re.findall(pattern, msg_clean)
             if matches:
                 detail = matches[0].strip().rstrip('。\n ').strip()
-                detail = re.sub(r'为\s+', '为', detail)  # 规范化空格
+                # 规范化空格：将"为"前后的多个空格合并为单个空格
+                detail = re.sub(r'\s+', ' ', detail)  # 先合并所有空格
+                detail = re.sub(r'为\s+', '为', detail)  # 规范化"为"后的空格
+                detail = re.sub(r'\s+为', '为', detail)  # 规范化"为"前的空格
                 if detail and '已更改' in detail and '为' in detail:
                     if detail not in success_details:
                         success_details.append(detail)
+                        logger.info(f"[汇总消息-辅助函数] 提取到: {detail}")
             else:
                 # 如果正则没找到，尝试按句号分割查找
                 sentences = msg_clean.split('。')
@@ -83,23 +97,82 @@ def _build_summary_message(all_responses: list, final_response, failed_actions: 
                             detail = sentence_clean.split('\n')[0].strip()
                             if detail.endswith('。'):
                                 detail = detail[:-1]
+                            # 规范化空格
+                            detail = re.sub(r'\s+', ' ', detail)
                             detail = re.sub(r'为\s+', '为', detail)
+                            detail = re.sub(r'\s+为', '为', detail)
                             if detail and '已更改' in detail and '为' in detail:
                                 if detail not in success_details:
                                     success_details.append(detail)
+                                    logger.info(f"[汇总消息-辅助函数] 从句子提取到: {detail}")
                                     break
     
     logger.info(f"[汇总消息-辅助函数] success_details: {success_details}")
     
-    # 构建汇总消息
+    # 构建汇总消息：按条件分组，合并同一条件的修改
     success_msg = ""
     if success_details:
-        changes = []
+        # 按条件分组
+        condition_groups = {}  # {条件名: [修改列表]}
+        other_changes = []  # 不包含条件名的修改
+        
         for detail in success_details:
             if '已更改' in detail and '为' in detail:
                 change_part = detail.replace('已更改', '').strip()
-                if change_part:
-                    changes.append(change_part)
+                # 去掉开头的冒号（中文冒号和英文冒号）
+                change_part = change_part.lstrip('：:')
+                if not change_part:
+                    continue
+                
+                # 检查是否包含条件名（条件一、条件二、条件三等）
+                condition_name = None
+                for cond in ['条件一', '条件二', '条件三']:
+                    if change_part.startswith(cond):
+                        condition_name = cond
+                        # 去掉条件名前缀，提取实际的修改内容
+                        param_part = change_part[len(cond):].lstrip('的').strip()
+                        
+                        # 检查是否只有通道修改（没有其他条件参数）
+                        # 如果只有"监控通道为X"或"通道为X"，且没有其他参数，则不显示条件前缀
+                        is_channel_only = False
+                        if param_part.startswith('监控通道为') or param_part.startswith('通道为'):
+                            # 检查是否只包含通道信息，不包含其他参数（阈值、统计方法、持续时长、判断依据等）
+                            channel_keywords = ['监控通道为', '通道为']
+                            other_keywords = ['阈值为', '统计方法为', '持续时长为', '判断依据为', '阈值为', '统计方法', '持续时长', '判断依据']
+                            has_other_params = any(keyword in param_part for keyword in other_keywords)
+                            if not has_other_params:
+                                is_channel_only = True
+                        
+                        if is_channel_only:
+                            # 只有通道修改，不显示条件前缀，直接添加到other_changes
+                            other_changes.append(param_part)
+                        else:
+                            # 有条件参数修改，按条件分组
+                            if condition_name not in condition_groups:
+                                condition_groups[condition_name] = []
+                            condition_groups[condition_name].append(param_part)
+                        break
+                
+                if not condition_name:
+                    # 不包含条件名的修改，直接添加
+                    other_changes.append(change_part)
+        
+        # 按条件顺序构建消息（条件一、条件二、条件三）
+        changes = []
+        for cond in ['条件一', '条件二', '条件三']:
+            if cond in condition_groups:
+                # 合并同一条件的多个修改，用逗号分隔
+                cond_changes = condition_groups[cond]
+                if cond_changes:
+                    # 只保留一个条件名前缀
+                    combined = f"{cond}的{cond_changes[0]}"
+                    if len(cond_changes) > 1:
+                        combined += "，" + "，".join(cond_changes[1:])
+                    changes.append(combined)
+        
+        # 添加其他不包含条件名的修改
+        changes.extend(other_changes)
+        
         if changes:
             success_msg = "已更改" + "，".join(changes) + "。"
             logger.info(f"[汇总消息-辅助函数] success_msg: {success_msg}")
@@ -834,17 +907,26 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                             value,
                                             parsed_by_llm=parsed_by_llm
                                         )
-                                        response = single_response  # 保留最后一个响应用于状态和参数
+                                        # 始终更新response为最新的响应（即使后续失败，也要保留最后一个成功的响应）
+                                        response = single_response
                                         success_count += 1
+                                        logger.info(f"[多参数更新成功 {i+1}/{len(intent['actions'])}] action: {action}, value: {value}, state: {single_response.state}, message长度: {len(single_response.message) if single_response.message else 0}")
                                         # 收集所有成功的响应消息，用于后续汇总
                                         if single_response.message:
                                             all_responses.append(single_response.message)
+                                            logger.info(f"[多参数更新-消息收集] 已收集消息 {len(all_responses)}: {single_response.message[:100]}...")
+                                        else:
+                                            logger.warning(f"[多参数更新-消息为空] action: {action}, value: {value}, 响应消息为空")
+                                        
+                                        # 检查状态：如果状态改变为非配置状态（如确认配置、生成中等），停止处理后续操作
                                         if not _is_config_state(response.state):
-                                            # 如果状态改变（如确认配置），停止处理后续操作
+                                            logger.info(f"[多参数更新-状态改变] 状态从配置状态变为 {response.state}，停止处理后续操作")
                                             break
                                     except Exception as e:
-                                        logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}")
+                                        logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}", exc_info=True)
                                         failed_actions.append(f"{action}({value})")
+                                        # 即使失败也继续处理后续参数，不中断循环
+                                        continue
                             
                             if response is None:
                                 return UpdateConfigResponse(
@@ -929,17 +1011,22 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                                             value,
                                                             parsed_by_llm=False  # 使用规则匹配，不是LLM解析
                                                         )
-                                                        response = single_response  # 保留最后一个响应用于状态和参数
+                                                        response = single_response
                                                         success_count += 1
+                                                        logger.info(f"[多参数更新成功 {i+1}/{len(fallback_result['actions'])}] action: {action}, value: {value}, state: {single_response.state}, message长度: {len(single_response.message) if single_response.message else 0}")
                                                         # 收集所有成功的响应消息，用于后续汇总
                                                         if single_response.message:
                                                             all_responses.append(single_response.message)
+                                                            logger.info(f"[多参数更新-消息收集] 已收集消息 {len(all_responses)}: {single_response.message[:100]}...")
+                                                        else:
+                                                            logger.warning(f"[多参数更新-消息为空] action: {action}, value: {value}, 响应消息为空")
                                                         if not _is_config_state(response.state):
-                                                            # 如果状态改变（如确认配置），停止处理后续操作
+                                                            logger.info(f"[多参数更新-状态改变] 状态从配置状态变为 {response.state}，停止处理后续操作")
                                                             break
                                                     except Exception as e:
-                                                        logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}")
+                                                        logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}", exc_info=True)
                                                         failed_actions.append(f"{action}({value})")
+                                                        continue
                                             
                                             if response is None:
                                                 return UpdateConfigResponse(
@@ -991,17 +1078,22 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                                         value,
                                                         parsed_by_llm=False  # 使用规则匹配，不是LLM解析
                                                     )
-                                                    response = single_response  # 保留最后一个响应用于状态和参数
+                                                    response = single_response
                                                     success_count += 1
+                                                    logger.info(f"[多参数更新成功 {i+1}/{len(fallback_result['actions'])}] action: {action}, value: {value}, state: {single_response.state}, message长度: {len(single_response.message) if single_response.message else 0}")
                                                     # 收集所有成功的响应消息，用于后续汇总
                                                     if single_response.message:
                                                         all_responses.append(single_response.message)
+                                                        logger.info(f"[多参数更新-消息收集] 已收集消息 {len(all_responses)}: {single_response.message[:100]}...")
+                                                    else:
+                                                        logger.warning(f"[多参数更新-消息为空] action: {action}, value: {value}, 响应消息为空")
                                                     if not _is_config_state(response.state):
-                                                        # 如果状态改变（如确认配置），停止处理后续操作
+                                                        logger.info(f"[多参数更新-状态改变] 状态从配置状态变为 {response.state}，停止处理后续操作")
                                                         break
                                                 except Exception as e:
-                                                    logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}")
+                                                    logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}", exc_info=True)
                                                     failed_actions.append(f"{action}({value})")
+                                                    continue
                                         
                                         if response is None:
                                             return UpdateConfigResponse(
@@ -1051,17 +1143,22 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                                 value,
                                                 parsed_by_llm=parsed_by_llm
                                             )
-                                            response = single_response  # 保留最后一个响应用于状态和参数
+                                            response = single_response
                                             success_count += 1
+                                            logger.info(f"[多参数更新成功 {i+1}/{len(intent['actions'])}] action: {action}, value: {value}, state: {single_response.state}, message长度: {len(single_response.message) if single_response.message else 0}")
                                             # 收集所有成功的响应消息，用于后续汇总
                                             if single_response.message:
                                                 all_responses.append(single_response.message)
+                                                logger.info(f"[多参数更新-消息收集] 已收集消息 {len(all_responses)}: {single_response.message[:100]}...")
+                                            else:
+                                                logger.warning(f"[多参数更新-消息为空] action: {action}, value: {value}, 响应消息为空")
                                             if not _is_config_state(response.state):
-                                                # 如果状态改变（如确认配置），停止处理后续操作
+                                                logger.info(f"[多参数更新-状态改变] 状态从配置状态变为 {response.state}，停止处理后续操作")
                                                 break
                                         except Exception as e:
-                                            logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}")
+                                            logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}", exc_info=True)
                                             failed_actions.append(f"{action}({value})")
+                                            continue
                                 
                                 if response is None:
                                     return UpdateConfigResponse(
@@ -1119,17 +1216,22 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                                 value,
                                                 parsed_by_llm=parsed_by_llm
                                             )
-                                            response = single_response  # 保留最后一个响应用于状态和参数
+                                            response = single_response
                                             success_count += 1
+                                            logger.info(f"[多参数更新成功 {i+1}/{len(fallback_result['actions'])}] action: {action}, value: {value}, state: {single_response.state}, message长度: {len(single_response.message) if single_response.message else 0}")
                                             # 收集所有成功的响应消息，用于后续汇总
                                             if single_response.message:
                                                 all_responses.append(single_response.message)
+                                                logger.info(f"[多参数更新-消息收集] 已收集消息 {len(all_responses)}: {single_response.message[:100]}...")
+                                            else:
+                                                logger.warning(f"[多参数更新-消息为空] action: {action}, value: {value}, 响应消息为空")
                                             if not _is_config_state(response.state):
-                                                # 如果状态改变（如确认配置），停止处理后续操作
+                                                logger.info(f"[多参数更新-状态改变] 状态从配置状态变为 {response.state}，停止处理后续操作")
                                                 break
                                         except Exception as e:
-                                            logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}")
+                                            logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}", exc_info=True)
                                             failed_actions.append(f"{action}({value})")
+                                            continue
                                 
                                 if response is None:
                                     return UpdateConfigResponse(
@@ -1187,17 +1289,22 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                                             value,
                                             parsed_by_llm=parsed_by_llm
                                         )
-                                        response = single_response  # 保留最后一个响应用于状态和参数
+                                        response = single_response
                                         success_count += 1
+                                        logger.info(f"[多参数更新成功 {i+1}/{len(fallback_result['actions'])}] action: {action}, value: {value}, state: {single_response.state}, message长度: {len(single_response.message) if single_response.message else 0}")
                                         # 收集所有成功的响应消息，用于后续汇总
                                         if single_response.message:
                                             all_responses.append(single_response.message)
+                                            logger.info(f"[多参数更新-消息收集] 已收集消息 {len(all_responses)}: {single_response.message[:100]}...")
+                                        else:
+                                            logger.warning(f"[多参数更新-消息为空] action: {action}, value: {value}, 响应消息为空")
                                         if not _is_config_state(response.state):
-                                            # 如果状态改变（如确认配置），停止处理后续操作
+                                            logger.info(f"[多参数更新-状态改变] 状态从配置状态变为 {response.state}，停止处理后续操作")
                                             break
                                     except Exception as e:
-                                        logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}")
+                                        logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}", exc_info=True)
                                         failed_actions.append(f"{action}({value})")
+                                        continue
                             
                             if response is None:
                                 return UpdateConfigResponse(
