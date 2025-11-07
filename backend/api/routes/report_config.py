@@ -188,6 +188,9 @@ class ReportConfigManager:
         # 确定初始状态
         if report_type == ReportType.FUNCTION_CALC:
             initial_state = ConfigState.TIME_BASE_CONFIG
+        elif report_type == ReportType.STATUS_EVAL:
+            # 状态评估直接从配置文件读取，不需要用户配置，直接进入确认状态
+            initial_state = ConfigState.CONFIRMATION
         else:
             initial_state = ConfigState.DISPLAY_CHANNELS
         
@@ -207,6 +210,8 @@ class ReportConfigManager:
             suggested_actions = self.get_channel_options(report_type, default_params)
         elif initial_state == ConfigState.TIME_BASE_CONFIG:
             suggested_actions = ['下一步']
+        elif initial_state == ConfigState.CONFIRMATION:
+            suggested_actions = ['确认生成', '取消配置']
         else:
             suggested_actions = []
         
@@ -2120,6 +2125,32 @@ class ReportConfigManager:
                 )
         
         elif current_state == ConfigState.CONFIRMATION:
+            # 状态评估类型不需要返回上一步，直接处理确认生成
+            if report_type == ReportType.STATUS_EVAL:
+                if action == '确认生成':
+                    session['state'] = ConfigState.GENERATING
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.GENERATING,
+                        message="配置已确认，正在生成状态评估报表...",
+                        suggested_actions=[],
+                        current_params=params
+                    )
+                elif action == '取消配置':
+                    # 取消配置，删除session
+                    if session_id in self.sessions:
+                        del self.sessions[session_id]
+                    raise ValueError("用户取消了配置")
+                else:
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.CONFIRMATION,
+                        message="请选择'确认生成'或'取消配置'。",
+                        suggested_actions=['确认生成', '取消配置'],
+                        current_params=params
+                    )
+            
+            # 功能计算类型的返回上一步逻辑
             if action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
                 # 根据通道情况返回到合适的步骤
                 available_channels = params.get('availableChannels', [])
@@ -2499,6 +2530,11 @@ class ReportConfigManager:
                 return "稳态分析配置 - 第3步：配置参数\n\n您可以修改统计方法、阈值或时间窗口，或直接确认配置。"
             elif state == ConfigState.SELECT_JUDGE_CHANNEL:
                 return "稳态分析配置 - 第4步：选择判断通道\n\n请通过自然语言选择判断通道。"
+        elif report_type == ReportType.STATUS_EVAL:
+            if state == ConfigState.CONFIRMATION:
+                return "状态评估配置确认\n\n状态评估将从配置文件中读取评估项配置。\n\n请确认是否生成状态评估报表？"
+            else:
+                return "状态评估配置"
         elif report_type == ReportType.FUNCTION_CALC:
             params = params or {}
             available_channels = params.get('availableChannels', [])

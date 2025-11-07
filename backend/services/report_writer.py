@@ -6,8 +6,11 @@ from openpyxl.chart import ScatterChart, Reference, Series
 from openpyxl.chart.label import DataLabelList
 from openpyxl.styles import Font, Alignment, PatternFill
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, TYPE_CHECKING
 import logging
+
+if TYPE_CHECKING:
+    from backend.services.status_evaluation_calculator import EvaluationItem
 
 logger = logging.getLogger(__name__)
 
@@ -172,4 +175,83 @@ class ReportWriter:
             import traceback
             traceback.print_exc()
             # 即使图表创建失败，也要保存数据
+    
+    def create_status_eval_report(
+        self, 
+        results: Dict[str, str], 
+        evaluations: List['EvaluationItem'],
+        output_path: str
+    ):
+        """
+        创建状态评估报表
+        
+        Args:
+            results: 评估结果字典，{item_id: "是" 或 "否"}
+            evaluations: 评估项配置列表（用于保持顺序和获取显示名称）
+            output_path: 输出文件路径
+        """
+        # 创建Excel工作簿
+        self.workbook = openpyxl.Workbook()
+        self.worksheet = self.workbook.active
+        self.worksheet.title = "状态评估表"
+        
+        # 写入表头
+        headers = ['评估项目', '评估内容', '评估结论']
+        self.worksheet.append(headers)
+        
+        # 格式化表头：居中、加粗、背景色
+        for col_idx in range(1, len(headers) + 1):
+            cell = self.worksheet.cell(row=1, column=col_idx)
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+        
+        # 遍历配置中的评估项（保持顺序）
+        row_count = 0
+        for eval_item in evaluations:
+            # 跳过functional_result类型
+            if eval_item.type == "functional_result":
+                continue
+            
+            item_id = eval_item.item
+            
+            # 第一列：评估项目（使用assessmentName）
+            assessment_name = eval_item.assessment_name if hasattr(eval_item, 'assessment_name') else item_id
+            
+            # 第二列：评估内容（使用assessmentContent）
+            assessment_content = eval_item.assessment_content if hasattr(eval_item, 'assessment_content') else ''
+            
+            # 第三列：评估结论（从results字典获取）
+            conclusion = results.get(item_id, "是")
+            
+            # 写入数据行
+            row_values = [assessment_name, assessment_content, conclusion]
+            self.worksheet.append(row_values)
+            row_count += 1
+            
+            # 格式化数据行
+            current_row = self.worksheet.max_row
+            for col_idx in range(1, len(headers) + 1):
+                cell = self.worksheet.cell(row=current_row, column=col_idx)
+                cell.alignment = Alignment(horizontal='left', vertical='center')
+                
+                # 评估结论列：如果是"否"，可以设置特殊颜色
+                if col_idx == 3:  # 评估结论列
+                    if conclusion == "否":
+                        cell.fill = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")
+                    elif conclusion == "是":
+                        cell.fill = PatternFill(start_color="CCFFCC", end_color="CCFFCC", fill_type="solid")
+        
+        # 调整列宽
+        self.worksheet.column_dimensions['A'].width = 30  # 评估项目
+        self.worksheet.column_dimensions['B'].width = 50  # 评估内容
+        self.worksheet.column_dimensions['C'].width = 15  # 评估结论
+        
+        logger.info(f"已写入 {row_count} 行状态评估数据")
+        
+        # 保存文件
+        output_path_obj = Path(output_path)
+        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+        self.workbook.save(output_path)
+        logger.info(f"状态评估报表已保存: {output_path}")
 

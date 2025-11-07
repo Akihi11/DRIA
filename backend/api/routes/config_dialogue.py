@@ -211,8 +211,8 @@ async def start_config_dialogue(request: StartConfigRequest):
     对于steady_state和function_calc类型，使用状态驱动的ReportConfigManager
     """
     try:
-        # 对于steady_state和function_calc，使用状态驱动的ReportConfigManager
-        if request.report_type == "steady_state" or request.report_type == "function_calc":
+        # 对于steady_state、function_calc和status_eval，使用状态驱动的ReportConfigManager
+        if request.report_type in ["steady_state", "function_calc", "status_eval"]:
             # 延迟导入避免循环导入
             from backend.api.routes.report_config import config_manager as report_config_manager
             session_id = f"{request.user_id}_{request.report_type}_{int(time.time())}"
@@ -1476,6 +1476,17 @@ async def complete_config_dialogue(request: CompleteConfigRequest):
                     from backend.services.functional_service import FunctionalService
                     service = FunctionalService()
                     report_path = service.generate_report_simple(
+                        str(config_file_path),
+                        str(input_file_path),
+                        str(report_file_path)
+                    )
+                elif report_type == "状态评估":
+                    logger.info(f"[报表类型判断] 调用状态评估服务")
+                    # 状态评估报表
+                    report_file_path = reports_dir / f"status_evaluation_report-{report_id}.xlsx"
+                    from backend.services.status_evaluation_service import StatusEvaluationService
+                    service = StatusEvaluationService()
+                    report_path = service.generate_report(
                         str(config_file_path),
                         str(input_file_path),
                         str(report_file_path)
