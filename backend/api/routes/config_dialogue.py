@@ -72,22 +72,220 @@ def _build_summary_message(all_responses: list, final_response, failed_actions: 
             logger.info(f"[汇总消息-辅助函数] 处理消息 {idx+1}: {msg[:200]}...")
             # 移除可能的step前缀（如"[step1]"或"[step2]"）
             msg_clean = msg.split(']', 1)[-1].strip() if ']' in msg else msg.strip()
-            # 使用正则表达式提取"已更改XXX为YYY"的消息（支持"为"前后可能有空格）
-            # 改进正则：匹配"已更改"到"为"之间的内容，以及"为"到句号/换行之间的内容
-            pattern = r'已更改[^。\n]*?为\s*[^。\n]*?(?=[。\n]|$)'
-            matches = re.findall(pattern, msg_clean)
-            if matches:
-                detail = matches[0].strip().rstrip('。\n ').strip()
-                # 规范化空格：将"为"前后的多个空格合并为单个空格
-                detail = re.sub(r'\s+', ' ', detail)  # 先合并所有空格
-                detail = re.sub(r'为\s+', '为', detail)  # 规范化"为"后的空格
-                detail = re.sub(r'\s+为', '为', detail)  # 规范化"为"前的空格
-                if detail and '已更改' in detail and '为' in detail:
-                    if detail not in success_details:
-                        success_details.append(detail)
-                        logger.info(f"[汇总消息-辅助函数] 提取到: {detail}")
-            else:
-                # 如果正则没找到，尝试按句号分割查找
+            
+            # 先尝试提取所有"已更改XXX为YYY"的模式（包括用逗号分隔的多个）
+            # 改进策略：先找到所有"已更改"的位置，然后匹配到下一个"已更改"或句号/换行
+            # 但要正确处理括号内的逗号（括号内的逗号不应该作为分隔符）
+            changed_positions = []
+            for i in range(len(msg_clean)):
+                if msg_clean[i:i+2] == '已更改':
+                    changed_positions.append(i)
+            
+            # 移除msg_extracted标记，确保处理所有消息，不因为提取到一条就停止
+            # 因为一条消息可能包含多个"已更改"信息
+            
+            if changed_positions:
+                for idx, pos in enumerate(changed_positions):
+                    # 找到这个"已更改"到下一个"已更改"或句号/换行之间的内容
+                    if idx + 1 < len(changed_positions):
+                        end_pos = changed_positions[idx + 1]
+                        segment = msg_clean[pos:end_pos]
+                    else:
+                        segment = msg_clean[pos:]
+                    
+                    # 提取第一个完整的句子（到句号、换行或下一个"已更改"）
+                    # 但要考虑括号内的逗号，以及用逗号分隔的多个"已更改"
+                    # 先尝试匹配到下一个"已更改"或句号
+                    match_obj = re.search(r'已更改[^。\n]*?(?=已更改|。|\n|$)', segment)
+                    if match_obj:
+                        detail = match_obj.group(0).strip()
+                        
+                        # 检查是否包含逗号分隔的多个"已更改"（如"已更改：条件一的持续时长为X, 条件一的统计方法为Y"）
+                        # 如果detail中包含逗号，且逗号后面有"条件一/二/三"，说明是多个"已更改"用逗号分隔
+                        if '，' in detail or ',' in detail:
+                            # 按逗号分割，但要注意括号内的逗号
+                            # 查找不在括号内的分隔逗号（分隔两个"已更改"的逗号）
+                            comma_pos = -1
+                            bracket_depth = 0
+                            for i, char in enumerate(detail):
+                                if char in ['（', '(']:
+                                    bracket_depth += 1
+                                elif char in ['）', ')']:
+                                    bracket_depth -= 1
+                                elif char in ['，', ','] and bracket_depth == 0:
+                                    # 找到不在括号内的逗号，检查后面是否有条件名
+                                    after_comma = detail[i+1:].strip()
+                                    if any(cond in after_comma for cond in ['条件一', '条件二', '条件三']):
+                                        comma_pos = i
+                                        break
+                            
+                            if comma_pos >= 0:
+                                # 这是多个独立的"已更改"，先处理第一个
+                                first_detail = detail[:comma_pos].strip()
+                                # 处理第一个detail
+                                if '为' in first_detail:
+                                    first_detail = first_detail.rstrip('。\n，, ').strip()
+                                    first_detail = re.sub(r'\s+', ' ', first_detail)
+                                    first_detail = re.sub(r'为\s+', '为', first_detail)
+                                    first_detail = re.sub(r'\s+为', '为', first_detail)
+                                    # 过滤无效的持续时长内容
+                                    if '持续时长为' in first_detail and ('已选择瞬时值' in first_detail or '此时无法输入' in first_detail):
+                                        logger.info(f"[汇总消息-提取] 过滤掉无效的持续时长内容: {first_detail}")
+                                    elif first_detail and '已更改' in first_detail and '为' in first_detail:
+                                        wei_pos = first_detail.find('为')
+                                        if wei_pos >= 0 and wei_pos + 1 < len(first_detail):
+                                            after_wei = first_detail[wei_pos+1:].strip()
+                                            if after_wei:
+                                                if first_detail not in success_details:
+                                                    success_details.append(first_detail)
+                                                    logger.info(f"[汇总消息-辅助函数] 提取到（逗号分隔第一个）: {first_detail}")
+                                
+                                # 处理第二个detail（逗号后的部分）
+                                second_part = detail[comma_pos+1:].strip()
+                                # 如果第二个部分以"条件一/二/三"开头，需要补上"已更改"前缀
+                                if any(second_part.startswith(cond) for cond in ['条件一', '条件二', '条件三']):
+                                    second_detail = f"已更改：{second_part}".split('\n')[0].strip()
+                                    if '为' in second_detail:
+                                        second_detail = second_detail.rstrip('。\n，, ').strip()
+                                        second_detail = re.sub(r'\s+', ' ', second_detail)
+                                        second_detail = re.sub(r'为\s+', '为', second_detail)
+                                        second_detail = re.sub(r'\s+为', '为', second_detail)
+                                        # 过滤无效的持续时长内容
+                                        if '持续时长为' in second_detail and ('已选择瞬时值' in second_detail or '此时无法输入' in second_detail):
+                                            logger.info(f"[汇总消息-提取] 过滤掉无效的持续时长内容: {second_detail}")
+                                        elif second_detail and '已更改' in second_detail and '为' in second_detail:
+                                            wei_pos = second_detail.find('为')
+                                            if wei_pos >= 0 and wei_pos + 1 < len(second_detail):
+                                                after_wei = second_detail[wei_pos+1:].strip()
+                                                if after_wei:
+                                                    if second_detail not in success_details:
+                                                        success_details.append(second_detail)
+                                                        logger.info(f"[汇总消息-辅助函数] 提取到（逗号分隔第二个）: {second_detail}")
+                                # 处理完逗号分隔的情况后，跳过后续处理
+                                continue
+                        
+                        # 检查是否包含完整的"为"结构
+                        if '为' in detail:
+                            # 检查是否是不完整的片段（如"持续时长为（已选择瞬时值"后面没有闭合括号）
+                            # 如果包含"持续时长为（"但没有对应的闭合括号，尝试找到完整的括号内容
+                            if '持续时长为（' in detail and detail.count('（') > detail.count('）'):
+                                bracket_start = detail.find('（')
+                                if bracket_start >= 0:
+                                    # 在原始消息中查找完整的括号内容
+                                    full_segment = msg_clean[pos:pos+len(detail)+200]  # 向后查找200字符
+                                    bracket_match = re.search(r'（[^）]*）', full_segment[bracket_start:])
+                                    if bracket_match:
+                                        # 找到完整括号，更新detail
+                                        detail = detail[:bracket_start] + bracket_match.group(0)
+                                    else:
+                                        # 没找到完整括号，跳过这个不完整的片段
+                                        continue
+                            
+                            detail = detail.rstrip('。\n，, ').strip()
+                            # 规范化空格
+                            detail = re.sub(r'\s+', ' ', detail)
+                            detail = re.sub(r'为\s+', '为', detail)
+                            detail = re.sub(r'\s+为', '为', detail)
+                            
+                            # 验证：确保detail包含完整的"已更改...为..."结构
+                            if detail and '已更改' in detail and '为' in detail:
+                                # 过滤无效的持续时长内容（如"持续时长为（已选择瞬时值，此时无法输入）"）
+                                if '持续时长为' in detail and ('已选择瞬时值' in detail or '此时无法输入' in detail):
+                                    logger.info(f"[汇总消息-提取] 过滤掉无效的持续时长内容: {detail}")
+                                    continue
+                                
+                                # 检查"为"后面是否有内容
+                                wei_pos = detail.find('为')
+                                if wei_pos >= 0 and wei_pos + 1 < len(detail):
+                                    after_wei = detail[wei_pos+1:].strip()
+                                    if after_wei:  # "为"后面有内容
+                                        if detail not in success_details:
+                                            success_details.append(detail)
+                                            logger.info(f"[汇总消息-辅助函数] 提取到: {detail}")
+                        
+                        # 如果detail中包含逗号分隔的多个"已更改"，需要处理第二个
+                        # 检查segment中是否还有第二个"已更改"
+                        remaining = segment[len(match_obj.group(0)):]
+                        if '已更改' in remaining:
+                            # 递归处理剩余的"已更改"（简化处理：直接查找下一个）
+                            next_changed_pos = remaining.find('已更改')
+                            if next_changed_pos >= 0:
+                                next_segment = remaining[next_changed_pos:]
+                                next_match = re.search(r'已更改[^。\n]*?(?=已更改|。|\n|$)', next_segment)
+                                if next_match:
+                                    next_detail = next_match.group(0).strip()
+                                    if '为' in next_detail:
+                                        next_detail = next_detail.rstrip('。\n，, ').strip()
+                                        next_detail = re.sub(r'\s+', ' ', next_detail)
+                                        next_detail = re.sub(r'为\s+', '为', next_detail)
+                                        next_detail = re.sub(r'\s+为', '为', next_detail)
+                                        # 过滤无效的持续时长内容
+                                        if '持续时长为' in next_detail and ('已选择瞬时值' in next_detail or '此时无法输入' in next_detail):
+                                            logger.info(f"[汇总消息-提取] 过滤掉无效的持续时长内容: {next_detail}")
+                                            continue
+                                        if next_detail and '已更改' in next_detail and '为' in next_detail:
+                                            wei_pos = next_detail.find('为')
+                                            if wei_pos >= 0 and wei_pos + 1 < len(next_detail):
+                                                after_wei = next_detail[wei_pos+1:].strip()
+                                                if after_wei:
+                                                    if next_detail not in success_details:
+                                                        success_details.append(next_detail)
+                                                        logger.info(f"[汇总消息-辅助函数] 提取到第二个: {next_detail}")
+            
+            # 如果上面的方法没找到，尝试按逗号分割查找（处理用逗号分隔的多个"已更改"）
+            # 注意：即使changed_positions为空，也要尝试这个方法，因为可能消息格式不同
+            if not changed_positions or len(success_details) == 0:
+                # 先尝试按逗号分割，因为一个消息可能包含多个"已更改"（用逗号分隔）
+                # 例如："已更改：条件一的持续时长为X, 条件一的统计方法为Y"
+                parts = re.split(r'，|,', msg_clean)
+                prev_has_changed = False
+                
+                for part in parts:
+                    part = part.strip()
+                    if not part:
+                        continue
+                    
+                    # 检查是否以"已更改"开头
+                    if part.startswith('已更改') and '为' in part:
+                        detail = part.split('\n')[0].strip()
+                        # 移除可能的句号、逗号结尾
+                        detail = detail.rstrip('。，,')
+                        # 规范化空格
+                        detail = re.sub(r'\s+', ' ', detail)
+                        detail = re.sub(r'为\s+', '为', detail)
+                        detail = re.sub(r'\s+为', '为', detail)
+                        # 过滤无效的持续时长内容
+                        if '持续时长为' in detail and ('已选择瞬时值' in detail or '此时无法输入' in detail):
+                            logger.info(f"[汇总消息-提取] 过滤掉无效的持续时长内容: {detail}")
+                            continue
+                        if detail and '已更改' in detail and '为' in detail:
+                            if detail not in success_details:
+                                success_details.append(detail)
+                                logger.info(f"[汇总消息-辅助函数] 从部分提取到: {detail}")
+                        prev_has_changed = True
+                    elif prev_has_changed and ('条件一' in part or '条件二' in part or '条件三' in part) and '为' in part:
+                        # 如果前一个part有"已更改"，且当前part包含条件名和"为"，可能是延续
+                        # 需要补上"已更改"前缀
+                        detail = f"已更改：{part}".split('\n')[0].strip()
+                        detail = detail.rstrip('。，,')
+                        detail = re.sub(r'\s+', ' ', detail)
+                        detail = re.sub(r'为\s+', '为', detail)
+                        detail = re.sub(r'\s+为', '为', detail)
+                        # 过滤无效的持续时长内容
+                        if '持续时长为' in detail and ('已选择瞬时值' in detail or '此时无法输入' in detail):
+                            logger.info(f"[汇总消息-提取] 过滤掉无效的持续时长内容: {detail}")
+                            continue
+                        if detail and '已更改' in detail and '为' in detail:
+                            if detail not in success_details:
+                                success_details.append(detail)
+                                logger.info(f"[汇总消息-辅助函数] 从延续部分提取到: {detail}")
+                        prev_has_changed = False
+                    else:
+                        prev_has_changed = False
+            
+            # 如果还是没找到，再尝试按句号分割查找（兼容旧格式）
+            # 也尝试提取没有"已更改"前缀但包含条件名和"为"的消息
+            if len(success_details) == 0 or not any('已更改' in d for d in success_details):
                 sentences = msg_clean.split('。')
                 for sentence in sentences:
                     sentence_clean = sentence.strip()
@@ -101,13 +299,50 @@ def _build_summary_message(all_responses: list, final_response, failed_actions: 
                             detail = re.sub(r'\s+', ' ', detail)
                             detail = re.sub(r'为\s+', '为', detail)
                             detail = re.sub(r'\s+为', '为', detail)
+                            # 过滤无效的持续时长内容
+                            if '持续时长为' in detail and ('已选择瞬时值' in detail or '此时无法输入' in detail):
+                                logger.info(f"[汇总消息-提取] 过滤掉无效的持续时长内容: {detail}")
+                                continue
                             if detail and '已更改' in detail and '为' in detail:
                                 if detail not in success_details:
                                     success_details.append(detail)
                                     logger.info(f"[汇总消息-辅助函数] 从句子提取到: {detail}")
-                                    break
+            
+            # 额外处理：提取没有"已更改"前缀但包含条件名和"为"的消息
+            # 例如："条件一的统计方法为瞬时值"这种格式
+            # 注意：即使已经提取到有"已更改"前缀的消息，也要尝试提取无前缀的消息
+            # 因为一条消息可能同时包含两种格式
+            # 尝试提取"条件X的XXX为YYY"格式的消息（但排除已经提取过的）
+            pattern = r'(条件[一二三]的[^，。\n]+为[^，。\n]+)'
+            matches = re.findall(pattern, msg_clean)
+            for match in matches:
+                if '为' in match:
+                    # 检查这个match是否已经在success_details中（可能已经通过其他方式提取）
+                    already_extracted = False
+                    for existing_detail in success_details:
+                        if match in existing_detail or existing_detail.endswith(match):
+                            already_extracted = True
+                            break
+                    
+                    if not already_extracted:
+                        detail = f"已更改：{match}".strip()
+                        detail = re.sub(r'\s+', ' ', detail)
+                        detail = re.sub(r'为\s+', '为', detail)
+                        detail = re.sub(r'\s+为', '为', detail)
+                        # 过滤无效的持续时长内容
+                        if '持续时长为' in detail and ('已选择瞬时值' in detail or '此时无法输入' in detail):
+                            logger.info(f"[汇总消息-提取] 过滤掉无效的持续时长内容: {detail}")
+                            continue
+                        if detail and '为' in detail:
+                            wei_pos = detail.find('为')
+                            if wei_pos >= 0 and wei_pos + 1 < len(detail):
+                                after_wei = detail[wei_pos+1:].strip()
+                                if after_wei and after_wei not in ['（', '(', '）', ')']:
+                                    if detail not in success_details:
+                                        success_details.append(detail)
+                                        logger.info(f"[汇总消息-辅助函数] 从无前缀格式提取到: {detail}")
     
-    logger.info(f"[汇总消息-辅助函数] success_details: {success_details}")
+    logger.info(f"[汇总消息-辅助函数] success_details: {success_details}, 数量: {len(success_details)}")
     
     # 构建汇总消息：按条件分组，合并同一条件的修改
     success_msg = ""
@@ -116,6 +351,7 @@ def _build_summary_message(all_responses: list, final_response, failed_actions: 
         condition_groups = {}  # {条件名: [修改列表]}
         other_changes = []  # 不包含条件名的修改
         
+        logger.info(f"[汇总消息-分组] 开始处理 {len(success_details)} 个修改项")
         for detail in success_details:
             if '已更改' in detail and '为' in detail:
                 change_part = detail.replace('已更改', '').strip()
@@ -132,30 +368,23 @@ def _build_summary_message(all_responses: list, final_response, failed_actions: 
                         # 去掉条件名前缀，提取实际的修改内容
                         param_part = change_part[len(cond):].lstrip('的').strip()
                         
-                        # 检查是否只有通道修改（没有其他条件参数）
-                        # 如果只有"监控通道为X"或"通道为X"，且没有其他参数，则不显示条件前缀
-                        is_channel_only = False
-                        if param_part.startswith('监控通道为') or param_part.startswith('通道为'):
-                            # 检查是否只包含通道信息，不包含其他参数（阈值、统计方法、持续时长、判断依据等）
-                            channel_keywords = ['监控通道为', '通道为']
-                            other_keywords = ['阈值为', '统计方法为', '持续时长为', '判断依据为', '阈值为', '统计方法', '持续时长', '判断依据']
-                            has_other_params = any(keyword in param_part for keyword in other_keywords)
-                            if not has_other_params:
-                                is_channel_only = True
+                        # 确保param_part不包含条件名前缀（防止重复）
+                        for check_cond in ['条件一', '条件二', '条件三']:
+                            if param_part.startswith(check_cond):
+                                param_part = param_part[len(check_cond):].lstrip('的').strip()
                         
-                        if is_channel_only:
-                            # 只有通道修改，不显示条件前缀，直接添加到other_changes
-                            other_changes.append(param_part)
-                        else:
-                            # 有条件参数修改，按条件分组
-                            if condition_name not in condition_groups:
-                                condition_groups[condition_name] = []
-                            condition_groups[condition_name].append(param_part)
+                        # 所有包含条件名的修改都应该按条件分组
+                        # 即使只有通道修改，也应该显示条件前缀（如"条件一的监控通道为Np"）
+                        if condition_name not in condition_groups:
+                            condition_groups[condition_name] = []
+                        condition_groups[condition_name].append(param_part)
                         break
                 
                 if not condition_name:
                     # 不包含条件名的修改，直接添加
                     other_changes.append(change_part)
+        
+        logger.info(f"[汇总消息-分组] 条件分组结果: {condition_groups}, 其他修改: {other_changes}")
         
         # 按条件顺序构建消息（条件一、条件二、条件三）
         changes = []
@@ -163,19 +392,86 @@ def _build_summary_message(all_responses: list, final_response, failed_actions: 
             if cond in condition_groups:
                 # 合并同一条件的多个修改，用逗号分隔
                 cond_changes = condition_groups[cond]
+                logger.info(f"[汇总消息-合并] 处理{cond}，修改项数量: {len(cond_changes)}, 内容: {cond_changes}")
                 if cond_changes:
+                    # 清理每个修改项，确保不包含条件名前缀，并过滤无效项
+                    cleaned_changes = []
+                    has_instantaneous = False  # 检查是否有"统计方法为瞬时值"
+                    
+                    # 第一遍：检查是否有瞬时值
+                    for change in cond_changes:
+                        if '统计方法为瞬时值' in change or '统计方法为 瞬时值' in change:
+                            has_instantaneous = True
+                            break
+                    
+                    # 第二遍：过滤和清理，并按优先级排序
+                    for change in cond_changes:
+                        cleaned = change
+                        # 确保不包含任何条件名前缀
+                        for check_cond in ['条件一', '条件二', '条件三']:
+                            if cleaned.startswith(check_cond):
+                                cleaned = cleaned[len(check_cond):].lstrip('的').strip()
+                        
+                        # 过滤无效的修改项
+                        # 1. 如果统计方法是瞬时值，过滤掉所有持续时长的修改（因为瞬时值不需要持续时长）
+                        if has_instantaneous:
+                            if '持续时长为' in cleaned:
+                                logger.info(f"[汇总消息-过滤] 统计方法为瞬时值，过滤掉持续时长修改: {cleaned}")
+                                continue
+                        
+                        # 2. 过滤掉不完整的修改（如"持续时长为（"后面没有完整内容）
+                        if '持续时长为（' in cleaned and cleaned.count('（') > cleaned.count('）'):
+                            logger.info(f"[汇总消息-过滤] 过滤掉不完整的持续时长修改: {cleaned}")
+                            continue
+                        
+                        # 3. 确保修改项是有效的（包含"为"且"为"后面有内容）
+                        if '为' in cleaned:
+                            wei_pos = cleaned.find('为')
+                            if wei_pos >= 0 and wei_pos + 1 < len(cleaned):
+                                after_wei = cleaned[wei_pos+1:].strip()
+                                if not after_wei or after_wei in ['（', '(', '）', ')']:
+                                    logger.info(f"[汇总消息-过滤] 过滤掉无效的修改项（'为'后无内容）: {cleaned}")
+                                    continue
+                        
+                        if cleaned and cleaned not in cleaned_changes:
+                            cleaned_changes.append(cleaned)
+                    
+                    # 对修改项进行排序：统计方法 > 监控通道 > 持续时长 > 判断依据 > 阈值
+                    # 这样可以让消息更有序
+                    def get_change_priority(change_item):
+                        if '统计方法为' in change_item:
+                            return 1
+                        elif '监控通道为' in change_item or '通道为' in change_item:
+                            return 2
+                        elif '持续时长为' in change_item:
+                            return 3
+                        elif '判断依据为' in change_item:
+                            return 4
+                        elif '阈值为' in change_item:
+                            return 5
+                        else:
+                            return 6
+                    
+                    cleaned_changes.sort(key=get_change_priority)
+                    
                     # 只保留一个条件名前缀
-                    combined = f"{cond}的{cond_changes[0]}"
-                    if len(cond_changes) > 1:
-                        combined += "，" + "，".join(cond_changes[1:])
-                    changes.append(combined)
+                    if cleaned_changes:
+                        combined = f"{cond}的{cleaned_changes[0]}"
+                        if len(cleaned_changes) > 1:
+                            combined += "，" + "，".join(cleaned_changes[1:])
+                        changes.append(combined)
+                        logger.info(f"[汇总消息-合并] {cond}合并结果: {combined}")
         
         # 添加其他不包含条件名的修改
+        if other_changes:
+            logger.info(f"[汇总消息-合并] 添加其他修改: {other_changes}")
         changes.extend(other_changes)
         
         if changes:
             success_msg = "已更改" + "，".join(changes) + "。"
-            logger.info(f"[汇总消息-辅助函数] success_msg: {success_msg}")
+            logger.info(f"[汇总消息-辅助函数] 最终success_msg: {success_msg}")
+        else:
+            logger.warning(f"[汇总消息-辅助函数] 没有生成任何修改消息，success_details: {success_details}")
     
     # 从最后一个响应中提取状态信息（_msg_for_condition生成的部分）
     status_text = ""
@@ -470,6 +766,61 @@ def _normalize_actions_to_current_condition(actions: list, user_input: str, curr
             logger.warning(f"[强制过滤] 强制过滤后只保留当前上下文条件的actions: {len(normalized_actions)}个")
     
     return normalized_actions
+
+def _normalize_single_action_to_user_intent(action: str, user_input: str, current_context: dict) -> str:
+    """
+    修正LLM返回的单个action，确保它匹配用户明确指定的条件
+    
+    Args:
+        action: LLM返回的单个action字符串
+        user_input: 用户输入的原始文本
+        current_context: 当前上下文信息，包含current_condition
+        
+    Returns:
+        修正后的action字符串
+    """
+    if not action or '修改' not in action:
+        return action
+    
+    # 检查用户是否明确指定了条件
+    user_specified_condition = None
+    if '条件一' in user_input or '条件1' in user_input or 'condition1' in user_input.lower():
+        user_specified_condition = '条件一'
+    elif '条件二' in user_input or '条件2' in user_input or 'condition2' in user_input.lower():
+        user_specified_condition = '条件二'
+    
+    # 检查action中是否包含条件
+    action_has_condition_one = '条件一' in action or '条件1' in action
+    action_has_condition_two = '条件二' in action or '条件2' in action
+    
+    # 如果用户明确指定了条件
+    if user_specified_condition:
+        # 检查action中的条件是否匹配
+        if user_specified_condition == '条件一' and action_has_condition_one:
+            # 匹配，不需要修正
+            return action
+        elif user_specified_condition == '条件二' and action_has_condition_two:
+            # 匹配，不需要修正
+            return action
+        else:
+            # 不匹配，需要修正
+            # 提取参数名称（去除条件名称）
+            param_name = action.replace('修改', '').replace('条件一', '').replace('条件二', '').replace('条件1', '').replace('条件2', '').strip()
+            corrected_action = f'修改{user_specified_condition}{param_name}'
+            logger.warning(f"[修正单参数action] 用户明确指定了{user_specified_condition}，但LLM返回了{action}，修正为: {corrected_action}")
+            return corrected_action
+    
+    # 如果用户没有明确指定条件，但action中也没有条件，根据当前上下文添加
+    if not action_has_condition_one and not action_has_condition_two:
+        current_condition = current_context.get('current_condition') if current_context else None
+        if current_condition:
+            # 提取参数名称
+            param_name = action.replace('修改', '').strip()
+            corrected_action = f'修改{current_condition}{param_name}'
+            logger.info(f"[修正单参数action] 用户未指定条件，根据当前上下文{current_condition}添加条件: {corrected_action}")
+            return corrected_action
+    
+    return action
 
 def _parse_natural_language_fallback(user_input: str) -> Dict[str, Any]:
     """
@@ -1181,6 +1532,8 @@ async def update_config_dialogue(request: UpdateConfigRequest):
                             
                             # 使用LLM返回的单个action
                             action = intent["action"]
+                            # 修正action，确保匹配用户明确指定的条件
+                            action = _normalize_single_action_to_user_intent(action, request.user_input, current_context)
                             parsed_by_llm = True
                             logger.info(f"[LLM解析成功-单参数] utterance: {request.user_input}, action: {action}, value: {intent.get('value')}")
                             if "value" in intent:

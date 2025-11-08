@@ -3,7 +3,7 @@
 """
 import json
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import logging
 
 from backend.services.data_reader import DataReader
@@ -39,7 +39,7 @@ class StatusEvaluationService:
         """
         try:
             # 1. 读取配置
-            config = self._load_config(config_path)
+            config, assessment_content_map = self._load_config(config_path)
             
             # 2. 提取需要读取的通道列表
             channels = self._extract_channels(config)
@@ -64,7 +64,8 @@ class StatusEvaluationService:
             self.report_writer.create_status_eval_report(
                 results, 
                 config.evaluations,
-                str(output_path)
+                str(output_path),
+                assessment_content_map
             )
             
             logger.info(f"状态评估报表生成完成: {output_path}")
@@ -74,8 +75,12 @@ class StatusEvaluationService:
             logger.error(f"生成状态评估报表失败: {str(e)}")
             raise
     
-    def _load_config(self, config_path: str) -> StatusEvalConfig:
-        """加载配置"""
+    def _load_config(self, config_path: str) -> Tuple[StatusEvalConfig, Dict[str, str]]:
+        """加载配置
+        
+        Returns:
+            (StatusEvalConfig, assessment_content_map): 配置对象和评估内容描述映射
+        """
         with open(config_path, 'r', encoding='utf-8') as f:
             config_data = json.load(f)
         
@@ -84,6 +89,9 @@ class StatusEvaluationService:
         # 获取状态评估配置
         status_eval = report_config.get('statusEval', {})
         evaluations_config = status_eval.get('evaluations', [])
+        
+        # 获取评估内容描述映射
+        assessment_content_map = status_eval.get('assessment_content_map', {})
         
         # 获取全局默认值（从statusEval层级）
         default_type = status_eval.get('type', 'continuous_check')
@@ -138,7 +146,7 @@ class StatusEvaluationService:
         
         config = StatusEvalConfig(evaluations=evaluations)
         logger.info(f"加载状态评估配置完成，评估项数量: {len(evaluations)}")
-        return config
+        return config, assessment_content_map
     
     def _normalize_statistic(self, statistic: str) -> str:
         """标准化统计方法名称"""

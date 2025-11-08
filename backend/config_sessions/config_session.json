@@ -1,8 +1,8 @@
 {
   "sourceFileId": "Simulated_Data.csv",
-  "fileId": "91e7c2a2-e082-4cbd-a1d9-50c861ff12e2",
+  "fileId": "0e151d5e-222b-4bce-b666-64dca17197e6",
   "configFileName": "config_session.json",
-  "uploadTime": "2025-11-07T21:22:43.381154",
+  "uploadTime": "2025-11-08T17:31:17.236618",
   "channels": [
     {
       "channel_name": "系统电流",
@@ -108,31 +108,111 @@
     "statusEval": {
       "type": "continuous_check",
       "conditionLogic": "AND",
+      "assessment_content_map": {
+        "pressureStatus": "检查并判断传感器的工作状态情况。",
+        "surge": "检查整个实验过程是否发生喘振。",
+        "voltageCurrent": "判断电机的工作状态情况。",
+        "flow": "判断燃油流量测量状态情况。",
+        "overSpeed": "判断发动机转速是否发生超过规定的车台保护值的异常情况。",
+        "overTemp": "判断发动机排气温度是否发生超过规定的车台保护值的异常情况。"
+      },
       "evaluations": [
         {
-          "item": "voltageCurrent",
-          "assessmentName": "电压/电流",
+          "item": "pressureStatus",
+          "assessmentName": "压力传感器状态",
           "conditions": [
             {
               "channel": "系统电流",
-              "statistic": "有效值",
-              "duration": 1.0,
+              "statistic": "瞬时值",
               "logic": ">",
-              "threshold": 10.0
+              "threshold": 200,
+              "duration": null
+            }
+          ]
+        },
+        {
+          "item": "surge",
+          "assessmentName": "喘振",
+          "conditions": [
+            {
+              "channel": "系统电流",
+              "statistic": "差值计算",
+              "logic": ">",
+              "threshold": 200,
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "item": "voltageCurrent",
+          "assessmentName": "起动电压/电流状态",
+          "conditions": [
+            {
+              "channel": "Ng",
+              "statistic": "瞬时值",
+              "logic": ">",
+              "threshold": 10,
+              "duration": null
             },
             {
-              "channel": "系统电压",
+              "channel": "滑油压力",
               "statistic": "平均值",
-              "duration": 1.0,
               "logic": ">",
-              "threshold": 220.0
+              "threshold": 888,
+              "duration": 1
             },
             {
               "channel": "滑油压力",
               "statistic": "最大值",
-              "duration": 2.0,
+              "logic": "<",
+              "threshold": 140,
+              "duration": 2
+            }
+          ]
+        },
+        {
+          "item": "flow",
+          "assessmentName": "流量测量状态",
+          "conditions": [
+            {
+              "channel": "系统电流",
+              "statistic": "平均值",
               "logic": ">",
-              "threshold": 140.0
+              "threshold": 100,
+              "duration": 1
+            },
+            {
+              "channel": "系统电压",
+              "statistic": "最大值",
+              "logic": ">",
+              "threshold": 150,
+              "duration": 2
+            }
+          ]
+        },
+        {
+          "item": "overSpeed",
+          "assessmentName": "超转保护",
+          "conditions": [
+            {
+              "channel": "Ng",
+              "statistic": "瞬时值",
+              "logic": "<",
+              "threshold": 18000,
+              "duration": null
+            }
+          ]
+        },
+        {
+          "item": "overTemp",
+          "assessmentName": "超温保护",
+          "conditions": [
+            {
+              "channel": "系统电流",
+              "statistic": "瞬时值",
+              "logic": "<",
+              "threshold": 850,
+              "duration": null
             }
           ]
         }
@@ -142,7 +222,7 @@
   "reportType": "状态评估",
   "history": [
     {
-      "timestamp": "2025-11-07T21:22:46.507431",
+      "timestamp": "2025-11-08T17:32:47.805502",
       "action": "set_report_type",
       "value": "状态评估"
     }

@@ -88,12 +88,30 @@ class ReportConfigManager:
         if not condition:
             return ""
         
+        def _format_value(value):
+            """格式化数值用于显示：整数显示为整数，小数保留实际小数位数"""
+            if value is None or value == '':
+                return ''
+            if isinstance(value, (int, float)):
+                if isinstance(value, float) and value.is_integer():
+                    return str(int(value))
+                formatted = f"{value:g}"
+                if 'e' in formatted.lower():
+                    formatted = str(value)
+                formatted = formatted.rstrip('0').rstrip('.')
+                return formatted
+            return str(value)
+        
         channel = condition.get('channel', '')
         statistic = condition.get('statistic', '')
         duration_sec = condition.get('duration_sec', 1)
         logic = condition.get('logic', '')
         threshold = condition.get('threshold', 0)
         condition_type = condition.get('type', '统计值')
+        
+        # 格式化数值
+        duration_sec_str = _format_value(duration_sec)
+        threshold_str = _format_value(threshold)
         
         # 逻辑映射
         logic_map = {
@@ -109,13 +127,13 @@ class ReportConfigManager:
         # 根据条件类型生成描述
         if condition_type == '统计值':
             # 统计值类型：当通道的统计值（平均值/最大值/最小值等）在X秒内大于/小于阈值时成立
-            return f"当 {channel} 的{statistic}在{duration_sec}秒内{logic_text}{threshold} 时成立"
+            return f"当 {channel} 的{statistic}在{duration_sec_str}秒内{logic_text}{threshold_str} 时成立"
         elif condition_type == '变化幅度':
             # 变化幅度类型：当通道的变化率在X秒内大于/小于阈值时成立
-            return f"当 {channel} 的{statistic}在{duration_sec}秒内{logic_text}{threshold} 时成立"
+            return f"当 {channel} 的{statistic}在{duration_sec_str}秒内{logic_text}{threshold_str} 时成立"
         else:
             # 通用格式
-            return f"当 {channel} 的{statistic}在{duration_sec}秒内{logic_text}{threshold} 时成立"
+            return f"当 {channel} 的{statistic}在{duration_sec_str}秒内{logic_text}{threshold_str} 时成立"
     
     def start_config(self, session_id: str, report_type: str, file_id: Optional[str] = None) -> ConfigResponse:
         """开始配置流程"""
@@ -666,18 +684,35 @@ class ReportConfigManager:
             combination = trigger_logic.get('combination', 'AND')
             # 允许编辑参数列表（包括监控通道）
             display_channels = params.get('displayChannels', [])
+            def _format_value_for_display(value):
+                """格式化数值用于显示：整数显示为整数，小数保留实际小数位数"""
+                if value is None or value == '':
+                    return ''
+                if isinstance(value, (int, float)):
+                    if isinstance(value, float) and value.is_integer():
+                        return str(int(value))
+                    formatted = f"{value:g}"
+                    if 'e' in formatted.lower():
+                        formatted = str(value)
+                    formatted = formatted.rstrip('0').rstrip('.')
+                    return formatted
+                return str(value)
+            
             def _msg_for_condition(cond: dict, cond_name: str):
                 statistic = cond.get('statistic', '')
                 # 如果条件二没有设置statistic，默认显示"变化率"
                 if cond_name == '条件二' and not statistic:
                     statistic = '变化率'
                 
+                duration_sec = _format_value_for_display(cond.get('duration_sec', ''))
+                threshold = _format_value_for_display(cond.get('threshold', ''))
+                
                 return f"\n【当前为{cond_name}，参数如下】\n" \
                        f"- 监控通道: {cond.get('channel', '')} (可选通道: {', '.join(display_channels)})\n" \
                        f"- 统计方法: {statistic}\n" \
-                       f"- 持续时长(秒): {cond.get('duration_sec', '')}\n" \
+                       f"- 持续时长(秒): {duration_sec}\n" \
                        f"- 判断依据: {cond.get('logic', '')}\n" \
-                       f"- 阈值: {cond.get('threshold', '')}"
+                       f"- 阈值: {threshold}"
             #########################################################################################
             if combination == 'Cond1_Only':
                 condition = trigger_logic.get('condition1', {})
@@ -2721,17 +2756,34 @@ class ReportConfigManager:
         # 处理GENERATING状态：支持返回修改配置
         if current_state == ConfigState.GENERATING:
             # 辅助函数：生成条件信息（与PARAMETER_CONFIG状态中的定义保持一致）
+            def _format_value_for_display_helper(value):
+                """格式化数值用于显示：整数显示为整数，小数保留实际小数位数"""
+                if value is None or value == '':
+                    return ''
+                if isinstance(value, (int, float)):
+                    if isinstance(value, float) and value.is_integer():
+                        return str(int(value))
+                    formatted = f"{value:g}"
+                    if 'e' in formatted.lower():
+                        formatted = str(value)
+                    formatted = formatted.rstrip('0').rstrip('.')
+                    return formatted
+                return str(value)
+            
             def _msg_for_condition_helper(cond: dict, cond_name: str, display_channels: list):
                 statistic = cond.get('statistic', '')
                 statistic_modifiable = not (cond_name == '条件二' and statistic == '变化率')
                 statistic_label = f"{statistic} (不可修改)" if not statistic_modifiable else statistic
                 
+                duration_sec = _format_value_for_display_helper(cond.get('duration_sec', ''))
+                threshold = _format_value_for_display_helper(cond.get('threshold', ''))
+                
                 return f"\n【当前为{cond_name}，参数如下】\n" \
                        f"- 监控通道: {cond.get('channel', '')} (可选通道: {', '.join(display_channels)})\n" \
                        f"- 统计方法: {statistic_label}\n" \
-                       f"- 持续时长(秒): {cond.get('duration_sec', '')}\n" \
+                       f"- 持续时长(秒): {duration_sec}\n" \
                        f"- 判断依据: {cond.get('logic', '')}\n" \
-                       f"- 阈值: {cond.get('threshold', '')}"
+                       f"- 阈值: {threshold}"
             
             # 检查是否是明确的返回操作（允许通过自然语言返回修改配置）
             if action in ['返回上一步', '修改配置', '返回修改', '修改', '返回']:
@@ -2892,10 +2944,11 @@ class ReportConfigManager:
             available_items = [
                 {'id': 'pressureStatus', 'name': '压力传感器状态', 'default_channels': ['Pressure(kPa)', 'Pressure', '压力']},
                 {'id': 'surge', 'name': '喘振', 'default_channels': ['Pressure(kPa)', 'Pressure', '压力']},
-                {'id': 'voltageCurrent', 'name': '电压/电流', 'default_channels': []},  # 需要用户选择
-                {'id': 'flow', 'name': '流量', 'default_channels': []},  # 需要用户选择
-                {'id': 'overTemp', 'name': '超温', 'default_channels': ['Temperature(°C)', 'Temperature', '温度']},
-                {'id': 'overSpeed', 'name': '超转', 'default_channels': ['Ng', 'Np']}
+                {'id': 'voltageCurrent', 'name': '起动电压/电流状态', 'default_channels': []}, 
+                {'id': 'flow', 'name': '流量测量状态', 'default_channels': []},  
+                {'id': 'overSpeed', 'name': '超转保护', 'default_channels': ['Ng', 'Np']},
+                {'id': 'overTemp', 'name': '超温保护', 'default_channels': ['Temperature(°C)', 'Temperature', '温度']}
+                
             ]
             
             return {
@@ -3056,24 +3109,31 @@ class ReportConfigManager:
                 # 评估内容描述映射
                 assessment_content_map = {
                     'pressureStatus': '检查并判断传感器的工作状态情况。',
-                    'surge': '判断发动机是否发生喘振异常情况。',
+                    'surge': '检查整个实验过程是否发生喘振。',
                     'voltageCurrent': '判断电机的工作状态情况。',
                     'flow': '判断燃油流量测量状态情况。',
-                    'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。',
-                    'overSpeed': '判断发动机转速是否发生超过规定的车台保护值的异常情况。'
+                    'overSpeed': '判断发动机转速是否发生超过规定的车台保护值的异常情况。',
+                    'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。'
                 }
                 
                 # 辅助函数：格式化数值，整数显示为整数，小数保留实际小数位数
                 def format_number(value):
-                    """格式化数值：整数显示为整数，小数保留实际小数位数"""
+                    """格式化数值：整数显示为整数，小数保留实际小数位数（不强制保留小数位）"""
                     if value is None:
                         return '未设置'
                     if isinstance(value, (int, float)):
                         # 如果是整数（即使存储为float），显示为整数
                         if isinstance(value, float) and value.is_integer():
                             return str(int(value))
-                        # 如果是小数，转换为字符串会自动去除末尾的0
-                        return str(value).rstrip('0').rstrip('.')
+                        # 如果是小数，使用g格式（自动去除末尾的0）或转换为字符串后去除末尾的0
+                        # 使用g格式可以自动处理科学计数法和去除末尾0
+                        formatted = f"{value:g}"
+                        # 如果g格式产生了科学计数法（包含e或E），使用原始值转换为字符串
+                        if 'e' in formatted.lower():
+                            formatted = str(value)
+                        # 去除末尾的0和小数点
+                        formatted = formatted.rstrip('0').rstrip('.')
+                        return formatted
                     return str(value)
                 
                 eval_content_lines = ["**配置确认**："]
@@ -3108,9 +3168,13 @@ class ReportConfigManager:
                                     if item_id == 'surge' and statistic == '差值计算':
                                         statistic += '（不可修改）'
                                     # 使用format_number格式化数值
-                                    duration_str = format_number(condition.get('duration', 1))
+                                    # 如果统计方法是瞬时值，显示特殊提示
+                                    if statistic == '瞬时值':
+                                        duration_str = '（已选择瞬时值，此时无法输入）'
+                                    else:
+                                        duration_str = format_number(condition.get('duration', 1)) + '秒'
                                     threshold_str = format_number(condition.get('threshold', 100))
-                                    condition_line = f"\n条件{i}：监控通道: {condition.get('channel', '未设置')}, 统计方法: {statistic}, 持续时长: {duration_str}秒, 判断依据: {condition.get('logic', '>')}, 阈值: {threshold_str}"
+                                    condition_line = f"\n条件{i}：监控通道: {condition.get('channel', '未设置')}, 统计方法: {statistic}, 持续时长: {duration_str}, 判断依据: {condition.get('logic', '>')}, 阈值: {threshold_str}"
                                     eval_content_lines.append(condition_line)
                                 else:
                                     # 只有通道信息，不显示"条件i："
@@ -3605,11 +3669,11 @@ class ReportConfigManager:
         # 评估内容描述映射
         assessment_content_map = {
             'pressureStatus': '检查并判断传感器的工作状态情况。',
-            'surge': '判断发动机是否发生喘振异常情况。',
+            'surge': '检查整个实验过程是否发生喘振。',
             'voltageCurrent': '判断电机的工作状态情况。',
             'flow': '判断燃油流量测量状态情况。',
-            'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。',
-            'overSpeed': '判断发动机转速是否发生超过规定的车台保护值的异常情况。'
+            'overSpeed': '判断发动机转速是否发生超过规定的车台保护值的异常情况。',
+            'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。'
         }
         
         # 获取评估内容描述
@@ -3638,7 +3702,11 @@ class ReportConfigManager:
                     if current_item_id == 'surge' and statistic == '差值计算':
                         statistic += '（不可修改）'
                     conditions_text += f"- 统计方法: {statistic}\n"
-                    conditions_text += f"- 持续时长: {condition.get('duration', 1)}秒\n"
+                    # 如果统计方法是瞬时值，显示特殊提示
+                    if statistic == '瞬时值':
+                        conditions_text += f"- 持续时长: （已选择瞬时值，此时无法输入）\n"
+                    else:
+                        conditions_text += f"- 持续时长: {condition.get('duration', 1)}秒\n"
                     conditions_text += f"- 判断依据: {condition.get('logic', '>')}\n"
                     conditions_text += f"- 阈值: {condition.get('threshold', 100)}\n"
         
@@ -3711,21 +3779,21 @@ class ReportConfigManager:
             default_configs = [
                 {
                     'statistic': '平均值',
-                    'duration': 1.0,
+                    'duration': 1,
                     'logic': '>',
-                    'threshold': 220.0
+                    'threshold': 220
                 },
                 {
                     'statistic': '有效值',
                     'duration': 1.5,
                     'logic': '>',
-                    'threshold': 10.0
+                    'threshold': 10
                 },
                 {
                     'statistic': '最大值',
-                    'duration': 2.0,
+                    'duration': 2,
                     'logic': '>',
-                    'threshold': 50.0
+                    'threshold': 50
                 }
             ]
             
@@ -3736,23 +3804,25 @@ class ReportConfigManager:
                     # 电压通道：使用平均值，阈值220
                     config = {
                         'statistic': '平均值',
-                        'duration': 1.0,
+                        'duration': 1,
                         'logic': '>',
-                        'threshold': 220.0
+                        'threshold': 220
                     }
                 elif '电流' in ch_lower or 'current' in ch_lower:
                     # 电流通道：使用有效值，阈值10
                     config = {
-                        'statistic': '有效值',
-                        'duration': 1.0,
+                        'statistic': '最小值',
+                        'duration': 1,
                         'logic': '>',
-                        'threshold': 10.0
+                        'threshold': 10
                     }
                 else:
                     # 其他通道：使用预设的默认配置（循环使用）
                     config = default_configs[idx % len(default_configs)].copy()
                     # 调整阈值以区分不同通道
-                    config['threshold'] = 100.0 + idx * 20.0
+                    threshold_value = 100.0 + idx * 20.0
+                    # 如果阈值是整数，保存为整数；否则保存为浮点数
+                    config['threshold'] = int(threshold_value) if threshold_value == int(threshold_value) else threshold_value
                 
                 conditions.append({
                     'channel': ch,
@@ -3767,15 +3837,15 @@ class ReportConfigManager:
             default_configs = [
                 {
                     'statistic': '平均值',
-                    'duration': 1.0,
+                    'duration': 1,
                     'logic': '>',
-                    'threshold': 100.0
+                    'threshold': 100
                 },
                 {
                     'statistic': '最大值',
-                    'duration': 2.0,
+                    'duration': 2,
                     'logic': '>',
-                    'threshold': 150.0
+                    'threshold': 150
                 }
             ]
             
@@ -3786,12 +3856,16 @@ class ReportConfigManager:
                     # 如果通道名包含流量关键词，使用预设配置
                     config = default_configs[idx % len(default_configs)].copy()
                     # 调整阈值以区分不同通道
-                    config['threshold'] = 100.0 + idx * 50.0
+                    threshold_value = 100.0 + idx * 50.0
+                    # 如果阈值是整数，保存为整数；否则保存为浮点数
+                    config['threshold'] = int(threshold_value) if threshold_value == int(threshold_value) else threshold_value
                 else:
                     # 使用预设的默认配置
                     config = default_configs[idx % len(default_configs)].copy()
                     # 调整阈值以区分不同通道
-                    config['threshold'] = 100.0 + idx * 50.0
+                    threshold_value = 100.0 + idx * 50.0
+                    # 如果阈值是整数，保存为整数；否则保存为浮点数
+                    config['threshold'] = int(threshold_value) if threshold_value == int(threshold_value) else threshold_value
                 
                 conditions.append({
                     'channel': ch,
@@ -3803,7 +3877,7 @@ class ReportConfigManager:
             conditions = [{
                 'channel': channel,
                 'statistic': '瞬时值',
-                'duration': 1,
+                'duration': None,  # 瞬时值不需要持续时长
                 'logic': '<',
                 'threshold': 850
             }] if channel else []
@@ -3813,7 +3887,7 @@ class ReportConfigManager:
             conditions = [{
                 'channel': channel,
                 'statistic': '瞬时值',
-                'duration': 1,
+                'duration': None,  # 瞬时值不需要持续时长
                 'logic': '<',
                 'threshold': 18000
             }] if channel else []
@@ -3945,8 +4019,42 @@ class ReportConfigManager:
                     
                     if new_statistic:
                         old_statistic = condition.get('statistic')
-                        if old_statistic != new_statistic:  # 只有值不同时才修改
+                        # 检查是否是不可修改的统计方法（喘振评估项的差值计算）
+                        item_id = current_item.get('id', '') if current_item else ''
+                        is_unmodifiable = False
+                        if item_id == 'surge':
+                            # 喘振评估项的统计方法如果是差值计算，则不可修改
+                            if old_statistic == '差值计算' or old_statistic == 'difference':
+                                is_unmodifiable = True
+                                logger.warning(f"[不可修改] 喘振评估项的统计方法（差值计算）不可修改，尝试修改为: {new_statistic}")
+                        
+                        if is_unmodifiable:
+                            # 不进行修改，但记录提示信息
+                            changes.append({
+                                'param': '统计方法',
+                                'value': old_statistic,
+                                'condition': condition_name,
+                                'error': True,
+                                'message': f'统计方法（{old_statistic}）是不可修改的参数。'
+                            })
+                        elif old_statistic != new_statistic:  # 只有值不同时才修改
                             condition['statistic'] = new_statistic
+                            # 如果改为瞬时值，持续时长应该设为None
+                            if new_statistic == '瞬时值':
+                                condition['duration'] = None
+                                changes.append({
+                                    'param': '持续时长',
+                                    'value': '（已选择瞬时值，此时无法输入）',
+                                    'condition': condition_name
+                                })
+                            # 如果从瞬时值改为其他统计方法，恢复默认持续时长
+                            elif old_statistic == '瞬时值' and condition.get('duration') is None:
+                                condition['duration'] = 1  # 恢复默认值
+                                changes.append({
+                                    'param': '持续时长',
+                                    'value': '1秒',
+                                    'condition': condition_name
+                                })
                             modified = True
                             changes.append({
                                 'param': '统计方法',
@@ -3956,32 +4064,50 @@ class ReportConfigManager:
                 
                 # 处理持续时长修改
                 if '持续时长' in action_part or '时长' in action_part or 'duration' in action_part.lower():
-                    part_value = value
-                    duration = None
-                    if part_value is not None:
-                        try:
-                            duration = float(part_value)
-                        except (ValueError, TypeError):
-                            duration = None
+                    # 如果统计方法是瞬时值，不允许修改持续时长
+                    if condition.get('statistic') == '瞬时值':
+                        # 不进行修改，但记录提示信息
+                        changes.append({
+                            'param': '持续时长',
+                            'value': '（已选择瞬时值，此时无法输入）',
+                            'condition': condition_name,
+                            'error': True
+                        })
                     else:
-                        # 尝试从action_part中提取数字
-                        match = re.search(r'(\d+\.?\d*)\s*秒', action_part)
-                        if match:
+                        part_value = value
+                        duration = None
+                        if part_value is not None:
                             try:
-                                duration = float(match.group(1))
+                                duration = float(part_value)
                             except (ValueError, TypeError):
                                 duration = None
-                    
-                    if duration is not None and 0.1 <= duration <= 50:
-                        old_duration = condition.get('duration')
-                        if old_duration is None or abs(old_duration - duration) > 0.001:  # 只有值不同时才修改（考虑浮点数精度）
-                            condition['duration'] = duration
-                            modified = True
-                            changes.append({
-                                'param': '持续时长',
-                                'value': f'{duration}秒',
-                                'condition': condition_name
-                            })
+                        else:
+                            # 尝试从action_part中提取数字
+                            match = re.search(r'(\d+\.?\d*)\s*秒', action_part)
+                            if match:
+                                try:
+                                    duration = float(match.group(1))
+                                except (ValueError, TypeError):
+                                    duration = None
+                        
+                        if duration is not None and 0.1 <= duration <= 50:
+                            old_duration = condition.get('duration')
+                            # 如果持续时长是整数（没有小数部分），保存为整数；否则保存为浮点数
+                            if duration == int(duration):
+                                duration_to_save = int(duration)
+                                duration_display = str(int(duration))
+                            else:
+                                duration_to_save = duration
+                                duration_display = str(duration)
+                            
+                            if old_duration is None or abs(old_duration - duration_to_save) > 0.001:  # 只有值不同时才修改（考虑浮点数精度）
+                                condition['duration'] = duration_to_save
+                                modified = True
+                                changes.append({
+                                    'param': '持续时长',
+                                    'value': f'{duration_display}秒',
+                                    'condition': condition_name
+                                })
                 
                 # 处理判断依据修改
                 if '判断依据' in action_part or '逻辑' in action_part or '判据' in action_part:
@@ -4043,11 +4169,17 @@ class ReportConfigManager:
                     if threshold_value is not None:
                         old_threshold = condition.get('threshold')
                         if old_threshold is None or abs(old_threshold - threshold_value) > 0.001:  # 只有值不同时才修改（考虑浮点数精度）
-                            condition['threshold'] = threshold_value
+                            # 如果阈值是整数（没有小数部分），保存为整数；否则保存为浮点数
+                            if threshold_value == int(threshold_value):
+                                condition['threshold'] = int(threshold_value)
+                                threshold_display = str(int(threshold_value))
+                            else:
+                                condition['threshold'] = threshold_value
+                                threshold_display = str(threshold_value)
                             modified = True
                             changes.append({
                                 'param': '阈值',
-                                'value': str(threshold_value),
+                                'value': threshold_display,
                                 'condition': condition_name
                             })
         
@@ -4104,6 +4236,17 @@ class ReportConfigManager:
             status_eval['type'] = default_type
             status_eval['conditionLogic'] = default_condition_logic
             
+            # 添加评估内容描述映射（如果不存在则添加默认值）
+            if 'assessment_content_map' not in status_eval:
+                status_eval['assessment_content_map'] = {
+                    'pressureStatus': '检查并判断传感器的工作状态情况。',
+                    'surge': '检查整个实验过程是否发生喘振。',
+                    'voltageCurrent': '判断电机的工作状态情况。',
+                    'flow': '判断燃油流量测量状态情况。',
+                    'overSpeed': '判断发动机转速是否发生超过规定的车台保护值的异常情况。',
+                    'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。'
+                }
+            
             # 转换evaluations格式（移除type和conditionLogic，因为它们现在是全局的）
             status_eval['evaluations'] = []
             for eval_item in evaluations:
@@ -4115,13 +4258,18 @@ class ReportConfigManager:
                 
                 # 转换conditions
                 for condition in eval_item.get('conditions', []):
+                    statistic = condition.get('statistic', '平均值')
                     cond_config = {
                         'channel': condition.get('channel'),
-                        'statistic': condition.get('statistic', '平均值'),
-                        'duration': condition.get('duration', 1),
+                        'statistic': statistic,
                         'logic': logic_map.get(condition.get('logic', '>'), '>'),
                         'threshold': condition.get('threshold', 100)
                     }
+                    # 如果统计方法是瞬时值，duration设为null或不写入
+                    if statistic == '瞬时值':
+                        cond_config['duration'] = None
+                    else:
+                        cond_config['duration'] = condition.get('duration', 1)
                     eval_config['conditions'].append(cond_config)
                 
                 status_eval['evaluations'].append(eval_config)
@@ -4262,6 +4410,9 @@ class ReportConfigManager:
                 return 0.1
             if v > 50:
                 return 50.0
+            # 如果值是整数，返回整数；否则返回浮点数
+            if v == int(v):
+                return int(v)
             return v
         combination = trigger.get('combination', 'AND')
         conditions: List[Dict[str, Any]] = []
@@ -4379,6 +4530,9 @@ class ReportConfigManager:
                 return 0.1
             if v > 50:
                 return 50.0
+            # 如果值是整数，返回整数；否则返回浮点数
+            if v == int(v):
+                return int(v)
             return v
 
         function_calc = {}
@@ -4638,6 +4792,19 @@ async def parse_config_intent_with_llm(utterance: str, current_params: dict, cur
 - 用户说"阈值2000，统计方法最大值"（未明确指定条件） -> {{"actions": [{{"action": "修改条件一阈值", "value": 2000}}, {{"action": "修改条件一统计方法", "value": "最大值"}}]}}（根据当前上下文）
 - 用户说"通道改为np，统计方法改为最大值"（未明确指定条件） -> {{"actions": [{{"action": "修改条件一监控通道", "value": "Np"}}, {{"action": "修改条件一统计方法", "value": "最大值"}}]}}（根据当前上下文，两个action必须都是条件一）
 - 【⚠️重要】如果用户没有明确指定条件，actions数组中的所有action都必须应用到同一个条件（current_condition），不能混用！例如，如果current_condition='条件一'，用户说"通道改为np，统计方法改为最大值"，必须返回两个都是"修改条件一..."的action，不能返回"修改条件二..."。
+
+示例（稳态参数 - 多个条件的混合修改，假设当前上下文是条件一）：
+- 用户说"条件一的统计方法瞬时值 持续时长2s 条件二阈值333 条件三判断依据小于 条件一通道np" -> {{"actions": [{{"action": "修改条件一统计方法", "value": "瞬时值"}}, {{"action": "修改条件一持续时长", "value": 2}}, {{"action": "修改条件二阈值", "value": 333}}, {{"action": "修改条件三判断依据", "value": "<"}}, {{"action": "修改条件一监控通道", "value": "Np"}}]}}（注意：用户明确说了多个条件，必须按照用户明确说的条件返回，不能遗漏任何一个！）
+- 用户说"条件一阈值100 条件二统计方法最大值 条件三通道Ng" -> {{"actions": [{{"action": "修改条件一阈值", "value": 100}}, {{"action": "修改条件二统计方法", "value": "最大值"}}, {{"action": "修改条件三监控通道", "value": "Ng"}}]}}（注意：必须识别出所有条件的修改，不能遗漏！）
+- 【⚠️⚠️⚠️ 条件继承规则 - 非常重要】当用户输入包含多个条件的修改时，如果某个参数前面没有明确指定条件（如"条件一"、"条件二"、"条件三"），但前面有明确的条件，则该参数应该继承前面的条件。
+  - 示例1：用户说"条件一的统计方法瞬时值 持续时长33s" -> "持续时长33s"继承"条件一"，应解析为：{{"actions": [{{"action": "修改条件一统计方法", "value": "瞬时值"}}, {{"action": "修改条件一持续时长", "value": 33}}]}}
+  - 示例2：用户说"条件二阈值353 监控通道np" -> "监控通道np"继承"条件二"，应解析为：{{"actions": [{{"action": "修改条件二阈值", "value": 353}}, {{"action": "修改条件二监控通道", "value": "Np"}}]}}
+  - 示例3：用户说"条件一的 统计方法瞬时值 持续时长33s 条件二阈值353 监控通道np 条件三判断依据小于等于 条件一通道ng" -> 
+    应解析为：{{"actions": [{{"action": "修改条件一统计方法", "value": "瞬时值"}}, {{"action": "修改条件一持续时长", "value": 33}}, {{"action": "修改条件二阈值", "value": 353}}, {{"action": "修改条件二监控通道", "value": "Np"}}, {{"action": "修改条件三判断依据", "value": "<="}}, {{"action": "修改条件一监控通道", "value": "Ng"}}]}}
+    说明：
+    - "持续时长33s"继承前面的"条件一"
+    - "监控通道np"继承前面的"条件二"（因为前面有"条件二阈值353"）
+    - "条件一通道ng"明确指定了"条件一"，所以是条件一的监控通道
 
 示例（功能计算 - 单个参数，假设当前在配置"点火时间"）：
 - 用户说"把阈值改为600" -> {{"action": "修改阈值", "value": 600}}

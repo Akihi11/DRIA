@@ -180,7 +180,8 @@ class ReportWriter:
         self, 
         results: Dict[str, str], 
         evaluations: List['EvaluationItem'],
-        output_path: str
+        output_path: str,
+        assessment_content_map: Dict[str, str] = None
     ):
         """
         创建状态评估报表
@@ -189,14 +190,18 @@ class ReportWriter:
             results: 评估结果字典，{item_id: "是" 或 "否"}
             evaluations: 评估项配置列表（用于保持顺序和获取显示名称）
             output_path: 输出文件路径
+            assessment_content_map: 评估内容描述映射，{item_id: "描述内容"}
         """
+        if assessment_content_map is None:
+            assessment_content_map = {}
+        
         # 创建Excel工作簿
         self.workbook = openpyxl.Workbook()
         self.worksheet = self.workbook.active
         self.worksheet.title = "状态评估表"
         
         # 写入表头
-        headers = ['评估项目', '评估结论']
+        headers = ['评估项目', '评估内容', '评估结论']
         self.worksheet.append(headers)
         
         # 格式化表头：居中、加粗、背景色
@@ -218,11 +223,14 @@ class ReportWriter:
             # 第一列：评估项目（使用assessmentName）
             assessment_name = eval_item.assessment_name if hasattr(eval_item, 'assessment_name') else item_id
             
-            # 第二列：评估结论（从results字典获取）
+            # 第二列：评估内容（从assessment_content_map获取）
+            assessment_content = assessment_content_map.get(item_id, '')
+            
+            # 第三列：评估结论（从results字典获取）
             conclusion = results.get(item_id, "是")
             
             # 写入数据行
-            row_values = [assessment_name, conclusion]
+            row_values = [assessment_name, assessment_content, conclusion]
             self.worksheet.append(row_values)
             row_count += 1
             
@@ -233,7 +241,7 @@ class ReportWriter:
                 cell.alignment = Alignment(horizontal='left', vertical='center')
                 
                 # 评估结论列：如果是"否"，可以设置特殊颜色
-                if col_idx == 2:  # 评估结论列
+                if col_idx == 3:  # 评估结论列（第三列）
                     if conclusion == "否":
                         cell.fill = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")
                     elif conclusion == "是":
@@ -241,7 +249,8 @@ class ReportWriter:
         
         # 调整列宽
         self.worksheet.column_dimensions['A'].width = 30  # 评估项目
-        self.worksheet.column_dimensions['B'].width = 15  # 评估结论
+        self.worksheet.column_dimensions['B'].width = 50  # 评估内容
+        self.worksheet.column_dimensions['C'].width = 15  # 评估结论
         
         logger.info(f"已写入 {row_count} 行状态评估数据")
         
