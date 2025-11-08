@@ -164,7 +164,7 @@ class StatusEvaluationService:
             return "有效值"
         elif stat_lower in ['instant', '瞬时值', 'instantaneous']:
             return "瞬时值"
-        elif stat_lower in ['difference', '差值', 'diff']:
+        elif stat_lower in ['difference', '差值', 'diff', '差值计算']:
             return "difference"
         else:
             logger.warning(f"未知的统计类型: {statistic}，使用平均值代替")

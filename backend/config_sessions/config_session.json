@@ -1,8 +1,8 @@
 {
   "sourceFileId": "Simulated_Data.csv",
-  "fileId": "0e151d5e-222b-4bce-b666-64dca17197e6",
+  "fileId": "f174717a-d967-47e1-903e-5ddee09b9c6b",
   "configFileName": "config_session.json",
-  "uploadTime": "2025-11-08T17:31:17.236618",
+  "uploadTime": "2025-11-09T15:11:51.181575",
   "channels": [
     {
       "channel_name": "系统电流",
@@ -123,9 +123,16 @@
           "conditions": [
             {
               "channel": "系统电流",
+              "statistic": "平均值",
+              "logic": ">",
+              "threshold": 100,
+              "duration": 1
+            },
+            {
+              "channel": "系统电流",
               "statistic": "瞬时值",
               "logic": ">",
-              "threshold": 200,
+              "threshold": 100,
               "duration": null
             }
           ]
@@ -138,8 +145,8 @@
               "channel": "系统电流",
               "statistic": "差值计算",
               "logic": ">",
-              "threshold": 200,
-              "duration": 20
+              "threshold": 100,
+              "duration": 10
             }
           ]
         },
@@ -148,23 +155,23 @@
           "assessmentName": "起动电压/电流状态",
           "conditions": [
             {
-              "channel": "Ng",
-              "statistic": "瞬时值",
+              "channel": "系统电流",
+              "statistic": "最小值",
               "logic": ">",
               "threshold": 10,
-              "duration": null
+              "duration": 1
             },
             {
-              "channel": "滑油压力",
+              "channel": "系统电压",
               "statistic": "平均值",
               "logic": ">",
-              "threshold": 888,
+              "threshold": 220,
               "duration": 1
             },
             {
               "channel": "滑油压力",
               "statistic": "最大值",
-              "logic": "<",
+              "logic": ">",
               "threshold": 140,
               "duration": 2
             }
@@ -222,7 +229,7 @@
   "reportType": "状态评估",
   "history": [
     {
-      "timestamp": "2025-11-08T17:32:47.805502",
+      "timestamp": "2025-11-09T15:11:52.976086",
       "action": "set_report_type",
       "value": "状态评估"
     }

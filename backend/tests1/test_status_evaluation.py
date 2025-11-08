@@ -48,9 +48,9 @@ except ImportError as e:
 
 # 测试文件路径
 TEST_DATA_DIR = Path(__file__).parent / "data"
-DEFAULT_TEST_CONFIG_JSON = TEST_DATA_DIR / "status_eval_config.json"
+DEFAULT_TEST_CONFIG_JSON = TEST_DATA_DIR / "config2.json"
 DEFAULT_TEST_DATA_CSV = TEST_DATA_DIR / "test_data.csv"
-DEFAULT_TEST_OUTPUT_EXCEL = TEST_DATA_DIR / "test_output.xlsx"
+DEFAULT_TEST_OUTPUT_EXCEL = TEST_DATA_DIR / "test_output2.xlsx"
 
 
 def run_test(config_path=None, data_path=None, output_path=None):
@@ -108,6 +108,9 @@ def run_test(config_path=None, data_path=None, output_path=None):
             logger.error("JSON 格式错误: 未找到 'reportConfig.statusEval.evaluations' 键")
             return False
         
+        # 获取评估内容描述映射
+        assessment_content_map = status_eval.get('assessment_content_map', {})
+        
         # 获取全局默认值
         default_type = status_eval.get('type', 'continuous_check')
         default_condition_logic = status_eval.get('conditionLogic', 'AND')
@@ -150,7 +153,7 @@ def run_test(config_path=None, data_path=None, output_path=None):
                     normalized_stat = "有效值"
                 elif stat_lower in ['instant', '瞬时值', 'instantaneous']:
                     normalized_stat = "瞬时值"
-                elif stat_lower in ['difference', '差值', 'diff']:
+                elif stat_lower in ['difference', '差值', 'diff', '差值计算']:
                     normalized_stat = "difference"
                 else:
                     logger.warning(f"未知的统计类型: {statistic}，使用平均值代替")
@@ -227,8 +230,13 @@ def run_test(config_path=None, data_path=None, output_path=None):
             print(f"  条件逻辑: {eval_item.condition_logic}")
             print(f"  条件数量: {len(eval_item.conditions)}")
             for idx, condition in enumerate(eval_item.conditions, 1):
+                # 格式化duration显示
+                if condition.duration is None:
+                    duration_str = "瞬时"
+                else:
+                    duration_str = f"{condition.duration}s"
                 print(f"    条件{idx}: {condition.channel} {condition.statistic} "
-                      f"({condition.duration}s) {condition.logic} {condition.threshold}")
+                      f"({duration_str}) {condition.logic} {condition.threshold}")
         
         # --- 9. 验证结果 ---
         print("\n" + "="*60)
@@ -256,7 +264,8 @@ def run_test(config_path=None, data_path=None, output_path=None):
             report_writer.create_status_eval_report(
                 results,
                 config.evaluations,
-                str(test_output_path)
+                str(test_output_path),
+                assessment_content_map
             )
             print(f"\n[OK] 报表已生成: {test_output_path}")
         except Exception as e:

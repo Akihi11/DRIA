@@ -228,6 +228,13 @@ class ReportWriter:
             
             # 第三列：评估结论（从results字典获取）
             conclusion = results.get(item_id, "是")
+            # 如果结果不在字典中，记录警告（虽然理论上不应该发生）
+            if item_id not in results:
+                logger.warning(f"评估项 {item_id} ({assessment_name}) 的结果不在results字典中，使用默认值'是'")
+            # 确保结论值有效
+            if conclusion not in ["是", "否"]:
+                logger.warning(f"评估项 {item_id} ({assessment_name}) 的结论值无效: {conclusion}，使用默认值'是'")
+                conclusion = "是"
             
             # 写入数据行
             row_values = [assessment_name, assessment_content, conclusion]

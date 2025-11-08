@@ -22,14 +22,7 @@
               "statistic": "平均值",
               "duration": 1,
               "logic": ">",
-              "threshold": 950 
-            },
-            {
-              "channel": "滑油压力",
-              "statistic": "平均值",
-              "duration": 1,
-              "logic": ">",
-              "threshold": 950 
+              "threshold": 890 
             }
           ]
         },
@@ -42,7 +35,7 @@
               "statistic": "差值计算",
               "duration": 10,
               "logic": ">",
-              "threshold": 500 
+              "threshold": 750 
             }
           ]
         },
@@ -63,13 +56,6 @@
               "duration": 1.0,
               "logic": ">",
               "threshold": 17000.0
-            },
-            {
-              "channel": "滑油压力",
-              "statistic": "平均值",
-              "duration": 1.0,
-              "logic": ">",
-              "threshold": 1100.0
             }
           ]
         },
@@ -82,14 +68,14 @@
               "statistic": "平均值",
               "duration": 1.0,
               "logic": ">",
-              "threshold": 20.0
+              "threshold": 10.0
             },
             {
               "channel": "系统电压",
               "statistic": "平均值",
               "duration": 1.0,
               "logic": ">",
-              "threshold": 17000.0
+              "threshold": 20000.0 
             }
           ]
         },
@@ -102,7 +88,7 @@
               "statistic": "瞬时值",
               "duration": null,
               "logic": ">",
-              "threshold": 18000
+              "threshold": 3000
             }
           ]
         },
@@ -115,7 +101,7 @@
               "statistic": "瞬时值",
               "duration": null,
               "logic": ">",
-              "threshold": 850
+              "threshold": 900
             }
           ]
         }

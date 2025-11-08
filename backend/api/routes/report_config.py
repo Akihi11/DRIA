@@ -3747,8 +3747,20 @@ class ReportConfigManager:
                     channels.append(ch)
                     if len(channels) >= 2:
                         break
+            # 如果没有找到压力相关通道，使用第一个可用通道
             if not channels and available_channels:
                 channels = [available_channels[0]]
+            
+            # 确保至少有2个条件：如果只有一个通道，重复使用；如果有多个，使用前2个
+            if len(channels) == 0:
+                # 如果没有可用通道，返回空条件列表
+                channels = []
+            elif len(channels) == 1:
+                # 如果只有一个通道，使用两次
+                channels = [channels[0], channels[0]]
+            else:
+                # 如果有多个通道，只使用前2个
+                channels = channels[:2]
             
             conditions = [
                 {
@@ -4004,7 +4016,7 @@ class ReportConfigManager:
                         '最小值': '最小值', '最小': '最小值',
                         '有效值': '有效值', '有效': '有效值',
                         '瞬时值': '瞬时值', '瞬时': '瞬时值',
-                        'difference': 'difference', '差值': 'difference', '差异': 'difference'
+                        'difference': 'difference', '差值': 'difference', '差异': 'difference', '差值计算': 'difference'
                     }
                     part_value = value
                     if part_value:

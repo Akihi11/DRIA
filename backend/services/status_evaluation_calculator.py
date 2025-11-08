@@ -73,6 +73,15 @@ class StatusEvaluationCalculator:
                 statistic = condition.statistic
                 duration = condition.duration
                 
+                # 对于"瞬时值"类型，如果duration为None，不需要创建窗口（直接使用当前值）
+                if statistic == "瞬时值" and duration is None:
+                    continue
+                
+                # 对于其他类型，如果duration为None，使用默认值1
+                if duration is None:
+                    duration = 1
+                    logger.warning(f"条件 {eval_item.item} 的 duration 为 None，使用默认值 1")
+                
                 # 生成唯一的窗口键
                 key = f"{eval_item.item}_cond{idx}_{channel}_{statistic}_{duration}s"
                 
