@@ -135,6 +135,17 @@ class ApiService {
     return response.data
   }
 
+  // Download status evaluation report
+  async downloadStatusEvaluationReport(reportId: string): Promise<Blob> {
+    const response: AxiosResponse<Blob> = await this.client.get(
+      `/reports/status_evaluation/${reportId}/download`,
+      {
+        responseType: 'blob',
+      }
+    )
+    return response.data
+  }
+
   // Get file info
   async getFileInfo(fileId: string): Promise<FileUploadResponse> {
     const response: AxiosResponse<FileUploadResponse> = await this.client.get(

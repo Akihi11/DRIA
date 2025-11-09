@@ -44,10 +44,14 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
       let blob: Blob
       let filename: string
       
-      if (reportType === '功能计算') {
+      if (reportType === '功能计算' || reportType === 'function_calc') {
         blob = await apiService.downloadFunctionalReport(reportId)
         filename = `functional_report_${reportId}.xlsx`
+      } else if (reportType === '状态评估' || reportType === 'status_eval') {
+        blob = await apiService.downloadStatusEvaluationReport(reportId)
+        filename = `status_evaluation_report_${reportId}.xlsx`
       } else {
+        // 稳定状态报表（默认）
         blob = await apiService.downloadSteadyStateReport(reportId)
         filename = `steady_state_report_${reportId}.xlsx`
       }

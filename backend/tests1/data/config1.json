@@ -21,15 +21,15 @@
               "channel": "滑油压力",
               "statistic": "平均值",
               "duration": 1,
-              "logic": ">",
+              "logic": "<", 
               "threshold": 950 
             },
             {
-              "channel": "滑油压力",
+              "channel": "系统电流",
               "statistic": "平均值",
               "duration": 1,
-              "logic": ">",
-              "threshold": 950 
+              "logic": "<",
+              "threshold": 10 
             }
           ]
         },
@@ -41,8 +41,8 @@
               "channel": "滑油压力",
               "statistic": "差值计算",
               "duration": 10,
-              "logic": ">",
-              "threshold": 500 
+              "logic": "<", 
+              "threshold": 800 
             }
           ]
         },
@@ -54,22 +54,22 @@
               "channel": "系统电流",
               "statistic": "平均值",
               "duration": 1.0,
-              "logic": ">",
+              "logic": "<",
               "threshold": 20.0 
             },
             {
               "channel": "系统电压",
               "statistic": "平均值",
               "duration": 1.0,
-              "logic": ">",
-              "threshold": 17000.0
+              "logic": "<",
+              "threshold": 16000.0 
             },
             {
               "channel": "滑油压力",
               "statistic": "平均值",
               "duration": 1.0,
-              "logic": ">",
-              "threshold": 1100.0
+              "logic": "<",
+              "threshold": 950.0
             }
           ]
         },
@@ -81,15 +81,15 @@
               "channel": "系统电流",
               "statistic": "平均值",
               "duration": 1.0,
-              "logic": ">",
+              "logic": "<",
               "threshold": 20.0
             },
             {
               "channel": "系统电压",
               "statistic": "平均值",
               "duration": 1.0,
-              "logic": ">",
-              "threshold": 17000.0
+              "logic": "<",
+              "threshold": 17000.0 
             }
           ]
         },
@@ -101,7 +101,7 @@
               "channel": "Ng",
               "statistic": "瞬时值",
               "duration": null,
-              "logic": ">",
+              "logic": "<", 
               "threshold": 18000
             }
           ]
@@ -114,7 +114,7 @@
               "channel": "排气温度",
               "statistic": "瞬时值",
               "duration": null,
-              "logic": ">",
+              "logic": "<", 
               "threshold": 850
             }
           ]

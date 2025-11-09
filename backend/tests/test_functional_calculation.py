@@ -46,7 +46,7 @@ except ImportError:
 # 测试文件路径
 TEST_DATA_DIR = project_root / "backend" / "tests" / "test_data"
 DEFAULT_TEST_DATA_CSV = TEST_DATA_DIR / "test.csv"
-DEFAULT_TEST_CONFIG_JSON = TEST_DATA_DIR / "test001.json"
+DEFAULT_TEST_CONFIG_JSON = TEST_DATA_DIR / "test.json"
 DEFAULT_TEST_OUTPUT_EXCEL = TEST_DATA_DIR / "test.xlsx"
 
 

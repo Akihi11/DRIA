@@ -1,8 +1,8 @@
 {
   "sourceFileId": "Simulated_Data.csv",
-  "fileId": "d9421bce-7404-4c06-b8d9-eb8799e4627a",
+  "fileId": "d886b7e9-3879-4dc6-a865-4d9b017d328f",
   "configFileName": "config_session.json",
-  "uploadTime": "2025-11-09T17:38:11.661385",
+  "uploadTime": "2025-11-09T17:20:00.898354",
   "channels": [
     {
       "channel_name": "系统电流",
@@ -229,7 +229,7 @@
   "reportType": "状态评估",
   "history": [
     {
-      "timestamp": "2025-11-09T17:38:14.038298",
+      "timestamp": "2025-11-09T17:20:02.491867",
       "action": "set_report_type",
       "value": "状态评估"
     }

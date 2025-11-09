@@ -1,6 +1,8 @@
 """
-状态评估计算器 - 实现"一票否决"逻辑
-根据配置扫描整个数据流，一旦任何时刻触发失败条件，就将评估结论翻转为"否"
+状态评估计算器 - V3.3.1 (NameError 修复版)
+根据配置文件扫描整个数据流
+
+V3.3.1 - 修复了 evaluate_normal_condition 中的 "NameError: 'idx' is not defined"
 """
 import numpy as np
 from collections import deque
@@ -8,6 +10,8 @@ from typing import List, Dict, Tuple, Any, Optional
 from dataclasses import dataclass
 import logging
 
+# 假设 SlidingWindow (V3.2) 已经从 functional_calculator 导入
+# （这行是根据你的 turn_211 代码来的）
 from backend.services.functional_calculator import SlidingWindow
 
 logger = logging.getLogger(__name__)
@@ -17,19 +21,19 @@ logger = logging.getLogger(__name__)
 class EvaluationCondition:
     """评估条件配置"""
     channel: str
-    statistic: str  # 平均值、最大值、最小值、有效值、瞬时值、difference
+    statistic: str
     duration: float
-    logic: str  # >, <, >=, <=
+    logic: str
     threshold: float
 
 
 @dataclass
 class EvaluationItem:
     """评估项配置"""
-    item: str  # 评估项ID
-    assessment_name: str  # 评估项目名称
-    type: str  # continuous_check 或 functional_result
-    condition_logic: str  # AND 或 OR
+    item: str
+    assessment_name: str
+    type: str
+    condition_logic: str
     conditions: List[EvaluationCondition]
 
 
@@ -40,7 +44,7 @@ class StatusEvalConfig:
 
 
 class StatusEvaluationCalculator:
-    """状态评估计算器 - 一票否决机制"""
+    """状态评估计算器 - "不满足则否决"机制"""
     
     def __init__(self, config: StatusEvalConfig):
         self.config = config
@@ -85,14 +89,16 @@ class StatusEvaluationCalculator:
                 # 生成唯一的窗口键
                 key = f"{eval_item.item}_cond{idx}_{channel}_{statistic}_{duration}s"
                 
-                if statistic == "difference":
+                if statistic == "difference" or statistic == "差值计算":
                     # 差值窗口：用于存储历史值，计算当前值减去duration秒前的值
-                    self.difference_windows[key] = SlidingWindow(duration, "瞬时值")
-                    self._diff_window_keys_to_channels.append((key, channel))
+                    if key not in self.difference_windows:
+                        self.difference_windows[key] = SlidingWindow(duration, "瞬时值")
+                        self._diff_window_keys_to_channels.append((key, channel))
                 else:
                     # 普通统计窗口
-                    self.windows[key] = SlidingWindow(duration, statistic)
-                    self._window_keys_to_channels.append((key, channel))
+                    if key not in self.windows:
+                        self.windows[key] = SlidingWindow(duration, statistic)
+                        self._window_keys_to_channels.append((key, channel))
         
         logger.info(f"状态评估计算器初始化完成，评估项数量: {len(self.results)}")
         logger.info(f"滑动窗口数量: {len(self.windows)}, 差值窗口数量: {len(self.difference_windows)}")
@@ -125,26 +131,19 @@ class StatusEvaluationCalculator:
             logger.warning(f"不支持的逻辑操作: {logic}，默认返回False")
             return False
     
-    def evaluate_failure_condition(
+    def evaluate_normal_condition(
         self, 
         condition: EvaluationCondition, 
         eval_item: EvaluationItem,
-        condition_idx: int,
+        condition_idx: int, # <--- (turn_223) 函数定义
         timestamp: float,
         data_point: Dict[str, float]
     ) -> bool:
         """
-        计算单个"失败条件"是否为True
-        
-        Args:
-            condition: 条件配置
-            eval_item: 评估项配置
-            condition_idx: 条件在评估项中的索引
-            timestamp: 当前时间戳
-            data_point: 当前数据点
+        计算单个"正常条件"是否为True
         
         Returns:
-            True表示失败条件满足（应该触发失败），False表示未满足
+            True表示"正常条件"满足（通过），False表示"正常条件"不满足（失败）
         """
         channel = condition.channel
         statistic = condition.statistic
@@ -159,10 +158,15 @@ class StatusEvaluationCalculator:
         
         value_to_check = None
         
+        # --- (!!!) V3.3.1 修复：
+        #    我把 'idx' 改成了 'condition_idx'
+        log_key = f"{eval_item.item}_cond{condition_idx}" # (日志)
+        # --- (修复结束) ---
+        
         # 生成窗口键
         key = f"{eval_item.item}_cond{condition_idx}_{channel}_{statistic}_{duration}s"
         
-        if statistic == "difference":
+        if statistic == "difference" or statistic == "差值计算":
             # 喘振逻辑：当前瞬时值减去duration秒前的瞬时值
             if key not in self.difference_windows:
                 logger.warning(f"差值窗口 {key} 不存在")
@@ -173,8 +177,8 @@ class StatusEvaluationCalculator:
             oldest_val = window.get_oldest_value()
             
             if oldest_val is None:
-                # 窗口未满，不算失败
-                return False
+                logger.debug(f"evaluate_normal_condition [{log_key}]: (差值计算) 窗口未满. -> True (Normal)")
+                return True # 窗口未满，我们假设它是“正常”的
             
             value_to_check = current_val - oldest_val
         
@@ -192,21 +196,23 @@ class StatusEvaluationCalculator:
             value_to_check = window.calculate_statistic()
             
             if value_to_check is None:
-                # 窗口未满，不算失败
-                return False
+                logger.debug(f"evaluate_normal_condition [{log_key}]: ({statistic}) 窗口未满. -> True (Normal)")
+                return True # 窗口未满，同上，我们假设它是“正常”的
         
-        # 评估逻辑条件
-        return self.evaluate_logic(value_to_check, logic, threshold)
+        # 评估逻辑条件 (e.g., 检查 "0 < 18000" 是否为 True)
+        result = self.evaluate_logic(value_to_check, logic, threshold)
+        
+        # (V3.3.1 日志)
+        logger.debug(
+            f"evaluate_normal_condition [{log_key}]: "
+            f"({statistic} Val: {value_to_check:.2f}) {logic} {threshold}? -> {result}"
+        )
+        
+        return result
     
     def calculate(self, data_stream: List[Tuple[float, Dict[str, float]]]) -> Dict[str, str]:
         """
         执行计算，返回评估结果字典
-        
-        Args:
-            data_stream: 时序数据流，每个元素为 (timestamp, {channel: value})
-        
-        Returns:
-            评估结果字典，{item_id: "是" 或 "否"}
         """
         logger.info(f"开始状态评估计算，数据点数量: {len(data_stream)}")
         
@@ -227,32 +233,35 @@ class StatusEvaluationCalculator:
                 if self.results[item_id] == "否":
                     continue
                 
-                # 3. 检查所有失败条件
+                # 3. 检查所有 "正常" 条件
                 condition_results = []
                 
                 for idx, condition in enumerate(eval_item.conditions):
-                    # 检查这个单独的条件是否为True（失败条件满足）
-                    is_met = self.evaluate_failure_condition(
+                    # 检查这个单独的"正常"条件是否为True
+                    is_met = self.evaluate_normal_condition(
                         condition, 
                         eval_item, 
-                        idx,
+                        idx, # <--- (turn_223) 这里传 'idx'
                         timestamp, 
                         data_point
                     )
                     condition_results.append(is_met)
                 
-                # 4. 组合逻辑（根据任务书，这里总是"AND"逻辑）
-                # 如果所有条件都满足（all(condition_results) == True），则触发失败
-                failure_is_met = all(condition_results)
+                # (V3.3 核心修复)
                 
-                if failure_is_met:
+                all_normal_conditions_met = all(condition_results)
+                
+                # 4. 逻辑翻转（遵循S1文档）
+                #    "若有不满足的 (if not all_normal_conditions_met), 
+                #     此单元格填否"
+                
+                if not all_normal_conditions_met:
                     # 核心逻辑：一票否决
                     self.results[item_id] = "否"
                     logger.info(
-                        f"评估项 [{eval_item.assessment_name}] 在 T={timestamp:.3f}s 触发失败，"
+                        f"评估项 [{eval_item.assessment_name}] 在 T={timestamp:.3f}s 触发失败 (不满足'正常'条件)，"
                         f"条件结果: {condition_results}"
                     )
         
         logger.info(f"状态评估计算完成，结果: {self.results}")
         return self.results
-

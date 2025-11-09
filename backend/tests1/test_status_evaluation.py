@@ -48,9 +48,9 @@ except ImportError as e:
 
 # 测试文件路径
 TEST_DATA_DIR = Path(__file__).parent / "data"
-DEFAULT_TEST_CONFIG_JSON = TEST_DATA_DIR / "config2.json"
+DEFAULT_TEST_CONFIG_JSON = TEST_DATA_DIR / "config_session.json"
 DEFAULT_TEST_DATA_CSV = TEST_DATA_DIR / "test_data.csv"
-DEFAULT_TEST_OUTPUT_EXCEL = TEST_DATA_DIR / "test_output2.xlsx"
+DEFAULT_TEST_OUTPUT_EXCEL = TEST_DATA_DIR / "test_output.xlsx"
 
 
 def run_test(config_path=None, data_path=None, output_path=None):

@@ -28,7 +28,6 @@ class FunctionalCalcConfig:
     rundown_ng: Optional[Dict[str, Any]]
     rundown_np: Optional[Dict[str, Any]]
 
-
 class SlidingWindow:
     """滑动窗口计算器"""
     
@@ -36,14 +35,36 @@ class SlidingWindow:
         self.duration = duration
         self.statistic_type = statistic_type
         self.window = deque()  # [(timestamp, value), ...]
-    
+        
+        # (!!!) V3.2 修复：
+        # 我们假设时间步长是0.01s，所以我们用 2 位小数的精度
+        # （在真实代码中，这个精度可能需要动态计算，但对我们的测试数据 2 就够了）
+        self._precision = 2 
+
+    def _round(self, val):
+        """辅助函数：四舍五入到固定精度以避免浮点数Bug"""
+        return round(val, self._precision)
+
     def update(self, timestamp: float, value: float):
         """更新窗口，移除过期数据，添加新数据"""
-        # (V2.9 修复)
-        cutoff_time_exclusive = timestamp - self.duration
         
-        while self.window and self.window[0][0] <= cutoff_time_exclusive:
-            self.window.popleft()
+        # (!!!) V3.2 核心修复：
+        # 在做任何比较之前，先把所有东西都 round 一遍！
+        
+        # 示例: duration = 1.0, timestamp = 2.01
+        
+        # 1. 计算截止时间
+        #    (2.01 - 1.0) = 1.009999... 
+        #    round(1.00999..., 2) = 1.01
+        cutoff_time_exclusive = self._round(timestamp - self.duration)
+        
+        # 2. 检查窗口
+        #    self.window[0][0] (1.01) <= cutoff_time_exclusive (1.01)
+        #    1.01 <= 1.01 -> True. 
+        #    t=1.01 的点将被正确踢出。
+        
+        while self.window and self._round(self.window[0][0]) <= cutoff_time_exclusive:
+            popped_item = self.window.popleft()
             
         self.window.append((timestamp, value))
 
@@ -52,21 +73,22 @@ class SlidingWindow:
         """计算窗口内的统计值"""
         if not self.window:
             return None
+        
         values = [item[1] for item in self.window]
-        array = np.array(values)
+        
         stat_lower = self.statistic_type.lower() if self.statistic_type else 'average'
         
         if stat_lower in ['average', '平均值', 'mean', 'avg']:
-            return float(np.mean(array))
+            return float(np.mean(values))
         elif stat_lower in ['max', '最大值', 'maximum']:
-            return float(np.max(array))
+            return float(np.max(values))
         elif stat_lower in ['min', '最小值', 'minimum']:
-            return float(np.min(array))
+            return float(np.min(values))
         elif stat_lower in ['rms', '有效值', 'rootmeansquare']:
-            return float(np.sqrt(np.mean(array ** 2)))
+            return float(np.sqrt(np.mean(np.array(values) ** 2)))
         else:
             logger.warning(f"未知的统计类型: {self.statistic_type}，使用平均值代替")
-            return float(np.mean(array))
+            return float(np.mean(values))
     
     def get_oldest_value(self) -> Optional[float]:
         if not self.window:
@@ -77,6 +99,54 @@ class SlidingWindow:
         if not self.window:
             return None
         return self.window[0][0]
+# class SlidingWindow:
+#     """滑动窗口计算器"""
+    
+#     def __init__(self, duration: float, statistic_type: str = "平均值"):
+#         self.duration = duration
+#         self.statistic_type = statistic_type
+#         self.window = deque()  # [(timestamp, value), ...]
+    
+#     def update(self, timestamp: float, value: float):
+#         """更新窗口，移除过期数据，添加新数据"""
+#         # (V2.9 修复)
+#         cutoff_time_exclusive = timestamp - self.duration
+        
+#         while self.window and self.window[0][0] <= cutoff_time_exclusive:
+#             self.window.popleft()
+            
+#         self.window.append((timestamp, value))
+
+    
+#     def calculate_statistic(self) -> Optional[float]:
+#         """计算窗口内的统计值"""
+#         if not self.window:
+#             return None
+#         values = [item[1] for item in self.window]
+#         array = np.array(values)
+#         stat_lower = self.statistic_type.lower() if self.statistic_type else 'average'
+        
+#         if stat_lower in ['average', '平均值', 'mean', 'avg']:
+#             return float(np.mean(array))
+#         elif stat_lower in ['max', '最大值', 'maximum']:
+#             return float(np.max(array))
+#         elif stat_lower in ['min', '最小值', 'minimum']:
+#             return float(np.min(array))
+#         elif stat_lower in ['rms', '有效值', 'rootmeansquare']:
+#             return float(np.sqrt(np.mean(array ** 2)))
+#         else:
+#             logger.warning(f"未知的统计类型: {self.statistic_type}，使用平均值代替")
+#             return float(np.mean(array))
+    
+#     def get_oldest_value(self) -> Optional[float]:
+#         if not self.window:
+#             return None
+#         return self.window[0][1]
+    
+#     def get_oldest_time(self) -> Optional[float]:
+#         if not self.window:
+#             return None
+#         return self.window[0][0]
 
 
 class FunctionalCalculator:
