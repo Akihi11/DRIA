@@ -148,6 +148,16 @@ async def download_steady_state_report(report_id: str):
     try:
         # 新格式：reports/steady_state_report-{uuid}.xlsx
         reports_dir = parent_dir / "reports"
+        # 若存在同 report_id 的合并报表，优先返回合并报表（兼容前端仅调用稳态下载接口的场景）
+        combined_file = reports_dir / f"combined_report-{report_id}.xlsx"
+        if combined_file.exists():
+            # 若存在合并报表，重定向到合并报表下载接口，使前端与日志均显示合并下载URL
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(
+                url=f"/api/reports/combined/{report_id}/download?from=steady_state",
+                status_code=307
+            )
+
         report_file = reports_dir / f"steady_state_report-{report_id}.xlsx"
         
         if not report_file.exists():

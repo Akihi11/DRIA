@@ -19,7 +19,7 @@ if str(project_root) not in sys.path:
 
 from config import settings
 from models.api_models import ErrorResponse
-from api.routes import dialogue, health, config, upload, analysis, config_dialogue, steady_state, status_evaluation, functional
+from api.routes import dialogue, health, config, upload, analysis, config_dialogue, steady_state, status_evaluation, functional, report_config, combined_report
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL))
@@ -93,6 +93,8 @@ app.include_router(analysis.router, prefix="/api", tags=["Analysis"])
 app.include_router(steady_state.router, prefix="/api", tags=["Steady State Reports"])
 app.include_router(status_evaluation.router, prefix="/api", tags=["Status Evaluation Reports"])
 app.include_router(functional.router, prefix="/api", tags=["Functional Reports"])
+app.include_router(report_config.router, prefix="/api", tags=["Report Config"])
+app.include_router(combined_report.router, prefix="/api", tags=["Combined Reports"])
 
 
 @app.exception_handler(Exception)

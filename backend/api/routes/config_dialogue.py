@@ -580,8 +580,8 @@ async def start_config_dialogue(request: StartConfigRequest):
     对于steady_state和function_calc类型，使用状态驱动的ReportConfigManager
     """
     try:
-        # 对于steady_state、function_calc和status_eval，使用状态驱动的ReportConfigManager
-        if request.report_type in ["steady_state", "function_calc", "status_eval"]:
+        # 对于 steady_state、function_calc、status_eval、complete，使用状态驱动的 ReportConfigManager
+        if request.report_type in ["steady_state", "function_calc", "status_eval", "complete"]:
             # 延迟导入避免循环导入
             from backend.api.routes.report_config import config_manager as report_config_manager
             session_id = f"{request.user_id}_{request.report_type}_{int(time.time())}"
@@ -1826,178 +1826,221 @@ async def complete_config_dialogue(request: CompleteConfigRequest):
     try:
         # 首先检查是否在 ReportConfigManager 中（用于 steady_state 报表）
         from backend.api.routes.report_config import config_manager as report_config_manager
-        
-        if request.session_id in report_config_manager.sessions:
-            # 使用 ReportConfigManager
-            session = report_config_manager.sessions.get(request.session_id)
+        # 为了避免热重载/进程重启导致的内存会话丢失，这里做文件驱动的兜底：
+        # 1) 如果在 ReportConfigManager 中找得到会话，则正常走文件生成流程
+        # 2) 如果找不到，也尝试直接读取 config_sessions/config_session.json 完成生成
+        session = report_config_manager.sessions.get(request.session_id)
+        try:
+            # 1. 获取配置文件路径
+            backend_dir = Path(__file__).parent.parent.parent
+            config_dir = backend_dir / "config_sessions"
+            config_file_path = None
             
-            if not session:
-                raise ValueError("配置会话不存在")
+            # 查找对应的配置文件（通过 file_id 或使用 config_session.json）
+            # 优先使用 config_session.json（如果存在且 fileId 匹配），因为这是最新的配置
+            file_id = session.get('file_id') if session else None
             
-            # 直接调用计算模块生成报表（不需要状态检查）
-            try:
-                # 1. 获取配置文件路径
-                backend_dir = Path(__file__).parent.parent.parent
-                config_dir = backend_dir / "config_sessions"
-                config_file_path = None
-                
-                # 查找对应的配置文件（通过 file_id 或使用 config_session.json）
-                # 优先使用 config_session.json（如果存在且 fileId 匹配），因为这是最新的配置
-                file_id = session.get('file_id')
-                
-                # 首先检查 config_session.json（最新的配置文件）
-                default_path = config_dir / "config_session.json"
-                if default_path.exists():
+            # 首先检查 config_session.json（最新的配置文件）
+            default_path = config_dir / "config_session.json"
+            if default_path.exists():
+                try:
+                    with open(default_path, 'r', encoding='utf-8') as f:
+                        default_cfg = json.load(f)
+                        # 如果 fileId 匹配或没有指定 fileId，使用这个文件
+                        if not file_id or default_cfg.get("fileId") == file_id:
+                            config_file_path = default_path
+                            logger.info(f"使用默认配置文件: {default_path}")
+                except Exception as e:
+                    logger.warning(f"读取默认配置文件失败: {e}")
+            
+            # 如果默认配置文件不存在或不匹配，查找其他匹配的配置文件
+            if config_file_path is None and file_id:
+                # 查找匹配的配置文件（按修改时间排序，取最新的）
+                matching_files = []
+                for json_file in config_dir.glob("*.json"):
+                    # 跳过已经检查过的 config_session.json
+                    if json_file.name == "config_session.json":
+                        continue
                     try:
-                        with open(default_path, 'r', encoding='utf-8') as f:
-                            default_cfg = json.load(f)
-                            # 如果 fileId 匹配或没有指定 fileId，使用这个文件
-                            if not file_id or default_cfg.get("fileId") == file_id:
-                                config_file_path = default_path
-                                logger.info(f"使用默认配置文件: {default_path}")
-                    except Exception as e:
-                        logger.warning(f"读取默认配置文件失败: {e}")
+                        with open(json_file, 'r', encoding='utf-8') as f:
+                            cfg = json.load(f)
+                            if cfg.get("fileId") == file_id:
+                                matching_files.append((json_file.stat().st_mtime, json_file))
+                    except Exception:
+                        continue
                 
-                # 如果默认配置文件不存在或不匹配，查找其他匹配的配置文件
-                if config_file_path is None and file_id:
-                    # 查找匹配的配置文件（按修改时间排序，取最新的）
-                    matching_files = []
-                    for json_file in config_dir.glob("*.json"):
-                        # 跳过已经检查过的 config_session.json
-                        if json_file.name == "config_session.json":
-                            continue
-                        try:
-                            with open(json_file, 'r', encoding='utf-8') as f:
-                                cfg = json.load(f)
-                                if cfg.get("fileId") == file_id:
-                                    matching_files.append((json_file.stat().st_mtime, json_file))
-                        except Exception:
-                            continue
-                    
-                    if matching_files:
-                        # 按修改时间排序，取最新的
-                        matching_files.sort(key=lambda x: x[0], reverse=True)
-                        config_file_path = matching_files[0][1]
-                        logger.info(f"使用匹配的配置文件: {config_file_path}")
-                               
-                
-                # 如果还是没找到，报错
-                if config_file_path is None:
-                    raise ValueError("找不到配置文件，请确保已保存配置")
-                
-                # 2. 获取输入数据文件路径
-                uploads_dir = backend_dir / "uploads"
-                input_file_path = None
-                
-                # 从配置文件中读取 fileId（UUID）或 sourceFileId
-                # 优先使用 fileId，因为上传后文件被重命名为 UUID 格式
-                with open(config_file_path, 'r', encoding='utf-8') as f:
-                    config_data = json.load(f)
-                    # 优先使用 fileId（UUID格式），如果没有则使用 sourceFileId
-                    file_id = config_data.get("fileId") or config_data.get("sourceFileId")
-                
-                if file_id:
-                    # 查找上传的文件（支持多种扩展名）
-                    # 如果 file_id 已经是 UUID（不含扩展名），直接拼接扩展名
-                    # 如果 file_id 是原始文件名（含扩展名），需要处理
-                    for ext in [".csv", ".xlsx", ".xls"]:
-                        # 如果 file_id 已经包含扩展名，尝试直接匹配
-                        if file_id.endswith(ext):
-                            candidate = uploads_dir / file_id
-                            if candidate.exists():
-                                input_file_path = candidate
-                                break
-                        # 否则尝试添加扩展名（UUID 格式的情况）
-                        candidate = uploads_dir / f"{file_id}{ext}"
+                if matching_files:
+                    # 按修改时间排序，取最新的
+                    matching_files.sort(key=lambda x: x[0], reverse=True)
+                    config_file_path = matching_files[0][1]
+                    logger.info(f"使用匹配的配置文件: {config_file_path}")
+                           
+            
+            # 如果还是没找到，报错
+            if config_file_path is None:
+                raise ValueError("找不到配置文件，请确保已保存配置")
+            
+            # 2. 获取输入数据文件路径
+            uploads_dir = backend_dir / "uploads"
+            input_file_path = None
+            
+            # 从配置文件中读取 fileId（UUID）或 sourceFileId
+            # 优先使用 fileId，因为上传后文件被重命名为 UUID 格式
+            with open(config_file_path, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+                # 优先使用 fileId（UUID格式），如果没有则使用 sourceFileId
+                file_id = config_data.get("fileId") or config_data.get("sourceFileId")
+            
+            if file_id:
+                # 查找上传的文件（支持多种扩展名）
+                # 如果 file_id 已经是 UUID（不含扩展名），直接拼接扩展名
+                # 如果 file_id 是原始文件名（含扩展名），需要处理
+                for ext in [".csv", ".xlsx", ".xls"]:
+                    # 如果 file_id 已经包含扩展名，尝试直接匹配
+                    if file_id.endswith(ext):
+                        candidate = uploads_dir / file_id
                         if candidate.exists():
                             input_file_path = candidate
                             break
-                
-                if not input_file_path or not input_file_path.exists():
-                    raise ValueError(f"找不到输入数据文件: {file_id}。请确认文件已上传到 uploads 目录。")
-                
-                # 3. 读取报表类型（从配置文件中）
-                report_type = config_data.get("reportType", "稳定状态")
-                logger.info(f"[报表类型判断] 配置文件路径: {config_file_path}")
-                logger.info(f"[报表类型判断] 配置数据中的 reportType: {config_data.get('reportType')}")
-                logger.info(f"[报表类型判断] 最终使用的 report_type: {report_type}")
-                
-                # 4. 创建输出目录
-                import uuid
-                report_id = str(uuid.uuid4())
-                reports_dir = backend_dir / "reports"
-                reports_dir.mkdir(parents=True, exist_ok=True)
-                
-                # 5. 根据报表类型调用相应的计算模块生成报表
-                if report_type == "功能计算":
-                    logger.info(f"[报表类型判断] 调用功能计算服务")
-                    # 功能计算报表
-                    report_file_path = reports_dir / f"functional_report-{report_id}.xlsx"
-                    from backend.services.functional_service import FunctionalService
-                    service = FunctionalService()
-                    report_path = service.generate_report_simple(
-                        str(config_file_path),
-                        str(input_file_path),
-                        str(report_file_path)
-                    )
-                elif report_type == "状态评估":
-                    logger.info(f"[报表类型判断] 调用状态评估服务")
-                    # 状态评估报表
-                    report_file_path = reports_dir / f"status_evaluation_report-{report_id}.xlsx"
-                    from backend.services.status_evaluation_service import StatusEvaluationService
-                    service = StatusEvaluationService()
-                    report_path = service.generate_report(
-                        str(config_file_path),
-                        str(input_file_path),
-                        str(report_file_path)
-                    )
-                else:
-                    # 稳定状态报表（默认）
-                    logger.info(f"[报表类型判断] 调用稳定状态服务 (report_type='{report_type}')")
-                    report_file_path = reports_dir / f"steady_state_report-{report_id}.xlsx"
-                    from backend.services.steady_state_service import SteadyStateService
-                    service = SteadyStateService()
-                    report_path = service.generate_report(
-                        str(config_file_path),
-                        str(input_file_path),
-                        str(report_file_path)
-                    )
-                
-                # 6. 删除配置会话，退出配置模式
+                    # 否则尝试添加扩展名（UUID 格式的情况）
+                    candidate = uploads_dir / f"{file_id}{ext}"
+                    if candidate.exists():
+                        input_file_path = candidate
+                        break
+            
+            if not input_file_path or not input_file_path.exists():
+                raise ValueError(f"找不到输入数据文件: {file_id}。请确认文件已上传到 uploads 目录。")
+            
+            # 3. 读取报表类型（从配置文件中）
+            raw_report_type = config_data.get("reportType", "稳定状态")
+            report_type = str(raw_report_type).strip()
+            report_type_lower = report_type.lower()
+            logger.info(f"[报表类型判断] 配置文件路径: {config_file_path}")
+            logger.info(f"[报表类型判断] 配置数据中的 reportType: {raw_report_type}")
+            logger.info(f"[报表类型判断] 最终使用的 report_type: {report_type}")
+            
+            # 4. 创建输出目录
+            import uuid
+            report_id = str(uuid.uuid4())
+            reports_dir = backend_dir / "reports"
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            
+            sub_reports = None
+            # 5. 根据报表类型调用相应的计算模块生成报表
+            if report_type_lower in {"功能计算", "function_calc"}:
+                logger.info(f"[报表类型判断] 调用功能计算服务")
+                # 功能计算报表
+                report_file_path = reports_dir / f"functional_report-{report_id}.xlsx"
+                from backend.services.functional_service import FunctionalService
+                service = FunctionalService()
+                report_path = service.generate_report_simple(
+                    str(config_file_path),
+                    str(input_file_path),
+                    str(report_file_path)
+                )
+            elif report_type_lower in {"状态评估", "status_eval"}:
+                logger.info(f"[报表类型判断] 调用状态评估服务")
+                # 状态评估报表
+                report_file_path = reports_dir / f"status_evaluation_report-{report_id}.xlsx"
+                from backend.services.status_evaluation_service import StatusEvaluationService
+                service = StatusEvaluationService()
+                report_path = service.generate_report(
+                    str(config_file_path),
+                    str(input_file_path),
+                    str(report_file_path)
+                )
+            elif report_type_lower in {"完整报表", "完整分析报表", "complete", "complete_report"}:
+                logger.info(f"[报表类型判断] 调用完整报表生成流程")
+                from backend.services.steady_state_service import SteadyStateService
+                from backend.services.functional_service import FunctionalService
+                from backend.services.status_evaluation_service import StatusEvaluationService
+                from backend.services.combined_report_service import CombinedReportService
+
+                combined_service = CombinedReportService()
+
+                combined_report_path = combined_service.generate_all_and_merge(
+                    str(config_file_path),
+                    str(config_file_path),
+                    str(config_file_path),
+                    str(input_file_path),
+                    str(reports_dir / f"combined_report-{report_id}.xlsx")
+                )
+
+                report_path = combined_report_path
+                report_type = "完整报表"
+                # 不再返回子报表下载信息，避免前端并行触发三张表的下载
+                sub_reports = None
+            else:
+                # 稳定状态报表（默认）
+                logger.info(f"[报表类型判断] 调用稳定状态服务 (report_type='{report_type}')")
+                report_file_path = reports_dir / f"steady_state_report-{report_id}.xlsx"
+                from backend.services.steady_state_service import SteadyStateService
+                service = SteadyStateService()
+                report_path = service.generate_report(
+                    str(config_file_path),
+                    str(input_file_path),
+                    str(report_file_path)
+                )
+            
+            # 6. 若存在内存会话则删除，退出配置模式
+            if session:
                 del report_config_manager.sessions[request.session_id]
-                
-                logger.info(f"报表生成成功: {report_path}")
-                
+            
+            logger.info(f"报表生成成功: {report_path}")
+            
+            response_config = {
+                "report_id": report_id, 
+                "report_path": report_path,
+                "report_type": report_type  # 添加报表类型信息
+            }
+            # 明确返回下载地址与文件名
+            if report_type in {"完整报表", "完整分析报表"}:
+                # 合并报表
+                response_config["download_url"] = f"/api/reports/combined/{report_id}/download"
+                response_config["download_filename"] = f"combined_report-{report_id}.xlsx"
+            elif sub_reports:
+                # 兼容旧流程：存在子报表时，仍优先返回合并报表的下载地址
+                response_config["sub_reports"] = sub_reports
+                response_config["download_url"] = f"/api/reports/combined/{report_id}/download"
+                response_config["download_filename"] = f"combined_report-{report_id}.xlsx"
+            else:
+                # 非完整报表时，根据类型提供相应下载地址
+                if report_type_lower in {"功能计算", "function_calc"}:
+                    response_config["download_url"] = f"/api/reports/functional/{report_id}/download"
+                    response_config["download_filename"] = f"functional_report-{report_id}.xlsx"
+                elif report_type_lower in {"状态评估", "status_eval"}:
+                    response_config["download_url"] = f"/api/reports/status_evaluation/{report_id}/download"
+                    response_config["download_filename"] = f"status_evaluation_report-{report_id}.xlsx"
+                else:
+                    # 稳定状态
+                    response_config["download_url"] = f"/api/reports/steady_state/{report_id}/download"
+                    response_config["download_filename"] = f"steady_state_report-{report_id}.xlsx"
+            
+            return CompleteConfigResponse(
+                success=True,
+                message=f"报表生成成功！文件路径: {report_path}",
+                config=response_config,
+                status="completed"
+            )
+        except Exception as calc_error:
+            logger.error(f"生成报表失败: {calc_error}", exc_info=True)
+            # 如果是旧的对话式配置流程，尝试退回 ConfigManager（需要内存会话）
+            try:
+                config_response = await config_manager.complete_config(request.session_id)
                 return CompleteConfigResponse(
                     success=True,
-                    message=f"报表生成成功！文件路径: {report_path}",
-                    config={
-                        "report_id": report_id, 
-                        "report_path": report_path,
-                        "report_type": report_type  # 添加报表类型信息
-                    },
-                    status="completed"
+                    message=config_response["message"],
+                    config=config_response["config"],
+                    status=config_response["status"]
                 )
-                
-            except Exception as calc_error:
-                logger.error(f"生成报表失败: {calc_error}", exc_info=True)
-                # 保持会话，允许用户重试
+            except Exception as e2:
+                # 双重失败，返回错误
                 return CompleteConfigResponse(
                     success=False,
-                    message=f"生成报表失败: {str(calc_error)}",
-                    config=session.get('params', {}),
+                    message=f"生成报表失败: {str(calc_error)}；旧流程完成失败: {str(e2)}",
+                    config={},
                     status="error"
                 )
-        else:
-            # 使用 ConfigManager（旧的配置管理器）
-            config_response = await config_manager.complete_config(request.session_id)
-        
-        return CompleteConfigResponse(
-            success=True,
-            message=config_response["message"],
-            config=config_response["config"],
-            status=config_response["status"]
-        )
         
     except Exception as e:
         logger.error(f"完成配置失败: {e}", exc_info=True)

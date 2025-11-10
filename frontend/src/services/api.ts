@@ -124,6 +124,17 @@ class ApiService {
     return response.data
   }
 
+  // Generic download by API path (e.g. '/api/reports/combined/{id}/download')
+  async downloadByApiPath(apiPath: string): Promise<Blob> {
+    // Normalize: remove leading '/api' since baseURL is already '/api'
+    const normalized = apiPath.startsWith('/api') ? apiPath.slice(4) : apiPath
+    const response: AxiosResponse<Blob> = await this.client.get(
+      normalized,
+      { responseType: 'blob' }
+    )
+    return response.data
+  }
+
   // Download functional report
   async downloadFunctionalReport(reportId: string): Promise<Blob> {
     const response: AxiosResponse<Blob> = await this.client.get(
@@ -174,12 +185,13 @@ class ApiService {
   }
 
   // Report configuration APIs
-  async startReportConfig(sessionId: string, reportType: string): Promise<any> {
+  async startReportConfig(sessionId: string, reportType: string, fileId?: string): Promise<any> {
     const response: AxiosResponse<any> = await this.client.post(
       '/report_config/start',
       {
         session_id: sessionId,
-        report_type: reportType
+        report_type: reportType,
+        file_id: fileId
       }
     )
     return response.data

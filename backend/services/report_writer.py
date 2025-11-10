@@ -4,7 +4,7 @@
 import openpyxl
 from openpyxl.chart import ScatterChart, Reference, Series
 from openpyxl.chart.label import DataLabelList
-from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from pathlib import Path
 from typing import List, Dict, Any, TYPE_CHECKING
 import logging
@@ -70,6 +70,15 @@ class ReportWriter:
                 data_cell = self.worksheet.cell(row=current_row, column=col_idx)
                 data_cell.number_format = '0.00'
         
+        # 设置全表格细边框
+        thin = Side(style="thin", color="000000")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        max_row = self.worksheet.max_row
+        max_col = len(headers)
+        for r in range(1, max_row + 1):
+            for c in range(1, max_col + 1):
+                self.worksheet.cell(row=r, column=c).border = border
+
         logger.info(f"已写入 {len(snapshots)} 行数据")
         
         # 生成图表 - 已关闭
@@ -259,6 +268,15 @@ class ReportWriter:
         self.worksheet.column_dimensions['B'].width = 50  # 评估内容
         self.worksheet.column_dimensions['C'].width = 15  # 评估结论
         
+        # 设置全表格细边框
+        thin = Side(style="thin", color="000000")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        max_row = self.worksheet.max_row
+        max_col = len(headers)
+        for r in range(1, max_row + 1):
+            for c in range(1, max_col + 1):
+                self.worksheet.cell(row=r, column=c).border = border
+
         logger.info(f"已写入 {row_count} 行状态评估数据")
         
         # 保存文件

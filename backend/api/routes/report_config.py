@@ -76,6 +76,7 @@ class ConfigResponse(BaseModel):
     is_complete: bool = False
     parsed_by_llm: bool = Field(default=False, description="是否由大模型解析")
     error_message: Optional[str] = Field(default=None, description="错误信息（如果有）")
+    ui_hint: Optional[str] = Field(default=None, description="前端渲染提示（如'modal'）")
 
 # 配置管理器
 class ReportConfigManager:
@@ -183,7 +184,7 @@ class ReportConfigManager:
         
         # 如果从配置文件读取失败，尝试从文件提取（稳态、功能计算和状态评估都需要）
         if not available_channels:
-            if report_type in [ReportType.STEADY_STATE, ReportType.FUNCTION_CALC, ReportType.STATUS_EVAL] and file_id:
+            if report_type in [ReportType.STEADY_STATE, ReportType.FUNCTION_CALC, ReportType.STATUS_EVAL, ReportType.COMPLETE] and file_id:
                 try:
                     uploads_dir = Path(__file__).parent.parent.parent / "uploads"
                     file_path = None
@@ -208,7 +209,11 @@ class ReportConfigManager:
                 )
         
         # 使用availableChannels生成默认参数
-        default_params = self.get_default_params(report_type, available_channels)
+        # 完整报表从稳态参数开始，但标记完整流程
+        default_params = self.get_default_params(
+            ReportType.STEADY_STATE if report_type == ReportType.COMPLETE else report_type,
+            available_channels
+        )
         
         # 确定初始状态
         if report_type == ReportType.FUNCTION_CALC:
@@ -220,15 +225,28 @@ class ReportConfigManager:
             initial_state = ConfigState.DISPLAY_CHANNELS
         
         # 保存file_id到session中，用于后续查找配置文件
-        self.sessions[session_id] = {
-            'state': initial_state,
-            'report_type': report_type,
-            'params': default_params,
-            'step': 0,
-            'created_at': datetime.now(),
-            'file_id': file_id,  # 保存file_id，用于查找对应的配置文件
-            'config_file_name': "config_session.json"
-        }
+        if report_type == ReportType.COMPLETE:
+            # 以稳态参数为起点，设置完整流程标识
+            self.sessions[session_id] = {
+                'state': initial_state,
+                'report_type': ReportType.STEADY_STATE,
+                'params': default_params,
+                'step': 0,
+                'created_at': datetime.now(),
+                'file_id': file_id,
+                'config_file_name': "config_session.json",
+                'complete_flow': True
+            }
+        else:
+            self.sessions[session_id] = {
+                'state': initial_state,
+                'report_type': report_type,
+                'params': default_params,
+                'step': 0,
+                'created_at': datetime.now(),
+                'file_id': file_id,  # 保存file_id，用于查找对应的配置文件
+                'config_file_name': "config_session.json"
+            }
         
         # 设置建议按钮
         if initial_state == ConfigState.DISPLAY_CHANNELS:
@@ -610,7 +628,7 @@ class ReportConfigManager:
                         f"{_build_condition_params_message(cond1, '条件一')}\n\n"
                         f"【可修改的参数】：\n"
                         f"- 监控通道（channel）：可从已选择的通道中选择\n"
-                        f"- 统计方法（statistic）：可改为 平均值/最大值/最小值/中位数/变化率 等\n"
+                        f"- 统计方法（statistic）：可改为 平均值/最大值/最小值/变化率 等\n"
                         f"- 持续时长（duration_sec）：单位秒\n"
                         f"- 判断依据（logic）：可改为 大于/小于/大于等于/小于等于\n"
                         f"- 阈值（threshold）：数值\n\n"
@@ -841,11 +859,15 @@ class ReportConfigManager:
                     self._save_conditions_to_json(session, params)
                     logger.info(f"[确认配置操作-条件一] 配置已保存，状态从 {current_state} 切换到 CONFIRMATION")
                     session['state'] = ConfigState.CONFIRMATION
+                    # 在完整报表流程下，提供“开始配置功能计算表”按钮
+                    _sa = ['返回上一步']
+                    if session.get('complete_flow'):
+                        _sa.append('开始配置功能计算表')
                     return create_response(
                         session_id=session_id,
                         state=ConfigState.CONFIRMATION,
                         message=self.get_confirmation_message(report_type, params),
-                        suggested_actions=['返回上一步'],
+                        suggested_actions=_sa,
                         current_params=params
                     )
                 else:
@@ -976,11 +998,14 @@ class ReportConfigManager:
                     self._save_conditions_to_json(session, params)
                     logger.info(f"[确认配置操作-条件二] 配置已保存，状态从 {current_state} 切换到 CONFIRMATION")
                     session['state'] = ConfigState.CONFIRMATION
+                    _sa = ['返回上一步']
+                    if session.get('complete_flow'):
+                        _sa.append('开始配置功能计算表')
                     return create_response(
                         session_id=session_id,
                         state=ConfigState.CONFIRMATION,
                         message=self.get_confirmation_message(report_type, params),
-                        suggested_actions=['返回上一步'],
+                        suggested_actions=_sa,
                         current_params=params
                     )
                 else:
@@ -1160,11 +1185,14 @@ class ReportConfigManager:
                         self._save_display_channels_to_json(session, params)
                         self._save_conditions_to_json(session, params)
                         session['state'] = ConfigState.CONFIRMATION
+                        _sa = ['返回上一步']
+                        if session.get('complete_flow'):
+                            _sa.append('开始配置功能计算表')
                         return create_response(
                             session_id=session_id,
                             state=ConfigState.CONFIRMATION,
                             message=self.get_confirmation_message(report_type, params),
-                            suggested_actions=['返回上一步'],
+                            suggested_actions=_sa,
                             current_params=params
                         )
                     else:
@@ -1292,11 +1320,14 @@ class ReportConfigManager:
                         self._save_display_channels_to_json(session, params)
                         self._save_conditions_to_json(session, params)
                         session['state'] = ConfigState.CONFIRMATION
+                        _sa = ['返回上一步']
+                        if session.get('complete_flow'):
+                            _sa.append('开始配置功能计算表')
                         return create_response(
                             session_id=session_id,
                             state=ConfigState.CONFIRMATION,
                             message=self.get_confirmation_message(report_type, params),
-                            suggested_actions=['返回上一步'],
+                            suggested_actions=_sa,
                             current_params=params
                         )
                     else:
@@ -1320,11 +1351,14 @@ class ReportConfigManager:
                         self._save_display_channels_to_json(session, params)
                         self._save_conditions_to_json(session, params)
                         session['state'] = ConfigState.CONFIRMATION
+                        _sa = ['返回上一步']
+                        if session.get('complete_flow'):
+                            _sa.append('开始配置功能计算表')
                         return create_response(
                             session_id=session_id,
                             state=ConfigState.CONFIRMATION,
                             message=self.get_confirmation_message(report_type, params),
-                            suggested_actions=['返回上一步'],
+                            suggested_actions=_sa,
                             current_params=params
                         )
                     
@@ -2177,11 +2211,14 @@ class ReportConfigManager:
                 self._save_function_calc_config_to_json(session, params)
                 logger.info(f"[确认配置操作-功能计算] 配置已保存，状态从 {current_state} 切换到 CONFIRMATION")
                 session['state'] = ConfigState.CONFIRMATION
+                _sa_fc = ['返回上一步']
+                if session.get('complete_flow'):
+                    _sa_fc.append('开始配置状态评估表')
                 return create_response(
                     session_id=session_id,
                     state=ConfigState.CONFIRMATION,
                     message=self.get_confirmation_message(report_type, params),
-                    suggested_actions=['返回上一步'],
+                    suggested_actions=_sa_fc,
                     current_params=params
                 )
             else:
@@ -2206,6 +2243,7 @@ class ReportConfigManager:
                         state=ConfigState.STATUS_EVAL_SELECT_ITEMS,
                         message="请至少选择一个评估项目。",
                         suggested_actions=[],
+                        ui_hint='modal',
                         current_params=params
                     )
                 # 为所有选中的评估项初始化默认配置
@@ -2261,6 +2299,7 @@ class ReportConfigManager:
                         state=ConfigState.STATUS_EVAL_SELECT_ITEMS,
                         message=self.get_step_message(report_type, ConfigState.STATUS_EVAL_SELECT_ITEMS, params),
                         suggested_actions=[],
+                        ui_hint='modal',
                         current_params=params
                     )
                 else:
@@ -2269,6 +2308,7 @@ class ReportConfigManager:
                         state=ConfigState.STATUS_EVAL_SELECT_ITEMS,
                         message=f"未能识别评估项目：{item_name}",
                         suggested_actions=[],
+                        ui_hint='modal',
                         current_params=params
                     )
             else:
@@ -2277,6 +2317,7 @@ class ReportConfigManager:
                     state=ConfigState.STATUS_EVAL_SELECT_ITEMS,
                     message=self.get_step_message(report_type, ConfigState.STATUS_EVAL_SELECT_ITEMS, params),
                     suggested_actions=[],
+                    ui_hint='modal',
                     current_params=params
                 )
         
@@ -2369,6 +2410,7 @@ class ReportConfigManager:
                         state=ConfigState.STATUS_EVAL_SELECT_ITEMS,
                         message=self.get_step_message(report_type, ConfigState.STATUS_EVAL_SELECT_ITEMS, params),
                         suggested_actions=[],
+                        ui_hint='modal',
                         current_params=params
                     )
             
@@ -2586,6 +2628,22 @@ class ReportConfigManager:
             elif report_type == ReportType.STEADY_STATE:
                 # 使用strip()处理可能的空格，确保能正确匹配"返回上一步"
                 action_normalized = action.strip() if action else ''
+                
+                # 完整报表流程：从稳态确认跳转到功能计算
+                if session.get('complete_flow') and action_normalized == '开始配置功能计算表':
+                    available_channels = params.get('availableChannels', [])
+                    fc_params = self.get_default_params(ReportType.FUNCTION_CALC, available_channels)
+                    session['report_type'] = ReportType.FUNCTION_CALC
+                    session['params'] = fc_params
+                    session['state'] = ConfigState.TIME_BASE_CONFIG
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.TIME_BASE_CONFIG,
+                        message=self.get_step_message(ReportType.FUNCTION_CALC, ConfigState.TIME_BASE_CONFIG, fc_params),
+                        suggested_actions=['下一步'],
+                        current_params=fc_params
+                    )
+
                 if action_normalized in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
                     # 返回到参数配置状态
                     session['state'] = ConfigState.PARAMETER_CONFIG
@@ -2815,16 +2873,34 @@ class ReportConfigManager:
                     
                     # 在CONFIRMATION状态下，显示确认消息
                     confirmation_message = self.get_confirmation_message(report_type, params)
+                    _sa_ss = ['返回上一步']
+                    if session.get('complete_flow'):
+                        _sa_ss.append('开始配置功能计算表')
                     return create_response(
                         session_id=session_id,
                         state=ConfigState.CONFIRMATION,
                         message=confirmation_message,
-                        suggested_actions=['返回上一步'],
+                        suggested_actions=_sa_ss,
                         current_params=params
                     )
             
             # 功能计算类型的返回上一步逻辑
             elif report_type == ReportType.FUNCTION_CALC:
+                # 完整报表流程：从功能计算确认跳转到状态评估
+                if session.get('complete_flow') and (action or '').strip() == '开始配置状态评估表':
+                    available_channels = params.get('availableChannels', [])
+                    se_params = self.get_default_params(ReportType.STATUS_EVAL, available_channels)
+                    session['report_type'] = ReportType.STATUS_EVAL
+                    session['params'] = se_params
+                    session['state'] = ConfigState.STATUS_EVAL_SELECT_ITEMS
+                    return create_response(
+                        session_id=session_id,
+                        state=ConfigState.STATUS_EVAL_SELECT_ITEMS,
+                        message=self.get_step_message(ReportType.STATUS_EVAL, ConfigState.STATUS_EVAL_SELECT_ITEMS, se_params),
+                        suggested_actions=[],  # 状态评估使用弹窗选择
+                        ui_hint='modal',
+                        current_params=se_params
+                    )
                 if action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
                     # 根据通道情况返回到合适的步骤
                     available_channels = params.get('availableChannels', [])

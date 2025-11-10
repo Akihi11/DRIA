@@ -9,6 +9,7 @@ import ReactMarkdown from 'react-markdown'
 import { Message } from '../../types/store'
 import FileAnalysisResult from '../FileAnalysis/FileAnalysisResult'
 import apiService from '../../services/api'
+import { downloadBlob } from '../../utils/helpers'
 
 interface MessageBubbleProps {
   message: Message
@@ -35,36 +36,33 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   const handleDownloadReport = async (reportId: string) => {
     setDownloading(true)
     try {
-      // 从 metadata 中获取报表类型
-      const reportType = message.metadata?.currentParams?.report_type || 
-                         message.metadata?.config?.report_type || 
-                         '稳定状态' // 默认为稳定状态
-      
-      // 根据报表类型选择下载方法
-      let blob: Blob
-      let filename: string
-      
-      if (reportType === '功能计算' || reportType === 'function_calc') {
-        blob = await apiService.downloadFunctionalReport(reportId)
-        filename = `functional_report_${reportId}.xlsx`
-      } else if (reportType === '状态评估' || reportType === 'status_eval') {
-        blob = await apiService.downloadStatusEvaluationReport(reportId)
-        filename = `status_evaluation_report_${reportId}.xlsx`
+      // 优先使用后端在 complete-config 中返回的标准下载信息
+      const currentParams = message.metadata?.currentParams || message.metadata?.config || {}
+      const preferredUrl = currentParams.download_url as string | undefined
+      const preferredFilename = currentParams.download_filename as string | undefined
+
+      if (preferredUrl) {
+        const blob = await apiService.downloadByApiPath(preferredUrl)
+        downloadBlob(blob, preferredFilename || `report_${reportId}.xlsx`)
       } else {
-        // 稳定状态报表（默认）
-        blob = await apiService.downloadSteadyStateReport(reportId)
-        filename = `steady_state_report_${reportId}.xlsx`
+        // 回退到按报表类型判断的旧逻辑
+        const reportType = currentParams.report_type || '稳定状态'
+        let blob: Blob
+        let filename: string
+
+        if (reportType === '功能计算' || reportType === 'function_calc') {
+          blob = await apiService.downloadFunctionalReport(reportId)
+          filename = `functional_report_${reportId}.xlsx`
+        } else if (reportType === '状态评估' || reportType === 'status_eval') {
+          blob = await apiService.downloadStatusEvaluationReport(reportId)
+          filename = `status_evaluation_report_${reportId}.xlsx`
+        } else {
+          blob = await apiService.downloadSteadyStateReport(reportId)
+          filename = `steady_state_report_${reportId}.xlsx`
+        }
+
+        downloadBlob(blob, filename)
       }
-      
-      // Create download link
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
       
       antdMessage.success('报表下载成功')
     } catch (error) {

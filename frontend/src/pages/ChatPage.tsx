@@ -215,25 +215,32 @@ const ChatPage: React.FC = () => {
       // 检查是否在配置模式
       if (configMode.isActive && configMode.sessionId) {
         // 配置模式：使用配置对话API
-        const response = await fetch('/api/config-dialogue/update-config', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            session_id: configMode.sessionId,
-            user_input: content
-          })
-        })
+        const configResponse = await apiService.updateReportConfig(configMode.sessionId, content)
         
-        const configResponse = await response.json()
-        
-        if (configResponse.success) {
+        if (configResponse) {
+          // 若进入“状态评估 - 第1步：选择评估项目”，使用弹窗而不是在聊天中显示文本
+          if (configResponse.state === 'status_eval_select_items') {
+            const items = configResponse.current_params?.availableItems || []
+            setAvailableEvalItems(items)
+            // 默认全选
+            setSelectedEvalItems(items.map((item: { id: string; name: string }) => item.id))
+            setStatusEvalModalVisible(true)
+            // 同步配置状态
+            setConfigMode(prev => ({
+              ...prev,
+              isActive: true,
+              currentState: configResponse.state,
+              currentParams: configResponse.current_params
+            }))
+            // 不添加纯文本消息，直接弹窗
+            return
+          }
+
           // 配置更新成功
           // 状态评估在配置评估项参数阶段和确认阶段需要显示按钮
           const shouldShowActions = configMode.reportType !== '状态评估' || 
-            configResponse.status === 'status_eval_config_item' || 
-            configResponse.status === 'confirmation'
+            configResponse.state === 'status_eval_config_item' || 
+            configResponse.state === 'confirmation'
           const aiMessage: Message = {
             id: uuidv4(),
             type: 'ai',
@@ -241,8 +248,8 @@ const ChatPage: React.FC = () => {
             timestamp: new Date(),
             metadata: {
               suggestedActions: shouldShowActions ? (configResponse.suggested_actions || []) : [],
-              configState: configResponse.status,
-              currentParams: configResponse.config
+              configState: configResponse.state,
+              currentParams: configResponse.current_params
             }
           }
           
@@ -252,8 +259,8 @@ const ChatPage: React.FC = () => {
         setConfigMode(prev => ({
           ...prev,
           isActive: true,  // 确保配置模式保持激活
-          currentState: configResponse.status,
-          currentParams: configResponse.config
+          currentState: configResponse.state,
+          currentParams: configResponse.current_params
         }))
           
           // 不再根据状态自动退出配置模式
@@ -352,16 +359,9 @@ const ChatPage: React.FC = () => {
         if (!item) continue
         
         try {
-          const itemResponse = await fetch('/api/config-dialogue/update-config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              session_id: configMode.sessionId, 
-              user_input: `选择 ${item.name}` 
-            })
-          })
+          const itemResponse = await apiService.updateReportConfig(configMode.sessionId, `选择 ${item.name}`)
           
-          if (itemResponse.ok) {
+          if (itemResponse) {
             successItems.push(item.name)
           } else {
             failedItems.push(item.name)
@@ -376,20 +376,7 @@ const ChatPage: React.FC = () => {
       }
 
       // 完成选择
-      const response = await fetch('/api/config-dialogue/update-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          session_id: configMode.sessionId, 
-          user_input: '完成选择' 
-        })
-      })
-
-      const data = await response.json()
-      
-      if (!response.ok) {
-        throw new Error(data.detail || '完成选择失败')
-      }
+      const data = await apiService.updateReportConfig(configMode.sessionId, '完成选择')
 
       // 关闭弹窗
       setStatusEvalModalVisible(false)
@@ -444,20 +431,14 @@ const ChatPage: React.FC = () => {
       
       for (const channel of selectedChannels) {
         try {
-          const channelResponse = await fetch('/api/config-dialogue/update-config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: configMode.sessionId, user_input: `选择 ${channel}` })
-          })
+          const channelData = await apiService.updateReportConfig(configMode.sessionId, `选择 ${channel}`)
           
-          const channelData = await channelResponse.json()
-          
-          if (channelResponse.ok) {
+          if (channelData) {
             successChannels.push(channel)
             console.log(`[DEBUG] 通道 "${channel}" 选择成功`)
           } else {
             failedChannels.push(channel)
-            console.error(`[DEBUG] 通道 "${channel}" 选择失败:`, channelData.detail || '未知错误')
+            console.error(`[DEBUG] 通道 "${channel}" 选择失败`)
           }
         } catch (error: any) {
           failedChannels.push(channel)
@@ -473,24 +454,13 @@ const ChatPage: React.FC = () => {
       }
 
       // 2) 调用"完成通道选择"，后端会返回默认条件一和二
-      const response = await fetch('/api/config-dialogue/update-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: configMode.sessionId, user_input: '完成通道选择' })
-      })
-
-      const data = await response.json()
+      const data = await apiService.updateReportConfig(configMode.sessionId, '完成通道选择')
       
       console.log('[DEBUG] 完成通道选择后的响应:', {
-        ok: response.ok,
         state: data.state || data.status,
         current_params: data.current_params,
         message: data.message
       })
-      
-      if (!response.ok) {
-        throw new Error(data.detail || '完成通道选择失败')
-      }
 
       // 关闭弹窗
       setChannelModalVisible(false)
@@ -554,36 +524,21 @@ const ChatPage: React.FC = () => {
     setIsLoading(true)
     
     try {
-      // 调用新的配置对话API开始配置流程
-      const response = await fetch('/api/config-dialogue/start-config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          report_type: mapReportTypeToBackend(reportType),
-          user_id: sessionId,
-          file_id: lastFileId || undefined
-        })
-      })
-      
-      const configResponse = await response.json()
-      
-      if (!response.ok) {
-        throw new Error(configResponse.detail || '启动配置失败')
-      }
+      // 使用新的报告配置API开始流程
+      const backendReportType = mapReportTypeToBackend(reportType)
+      const configResponse = await apiService.startReportConfig(sessionId, backendReportType, lastFileId || undefined)
       
       // 进入配置模式
       setConfigMode({
         isActive: true,
         sessionId: configResponse.session_id,
-        currentState: configResponse.status,
+        currentState: configResponse.state,
         reportType: reportType,
-        currentParams: configResponse.config || {}
+        currentParams: configResponse.current_params || {}
       })
 
-      // 若选择的是"稳态分析"，弹出通道多选弹窗，不显示AI消息
-      if (reportType === '稳态分析') {
+      // 若选择的是"稳态分析"或"完整报表"，弹出通道多选弹窗，不显示AI消息
+      if (reportType === '稳态分析' || reportType === '完整报表') {
         const base = lastFileChannels && lastFileChannels.length > 0
           ? lastFileChannels
           : ['Ng', 'Np', 'Temperature(°C)', 'Pressure(kPa)']
@@ -602,21 +557,18 @@ const ChatPage: React.FC = () => {
           timestamp: new Date(),
           metadata: {
             suggestedActions: configResponse.suggested_actions || [],
-            configState: configResponse.status,
-            currentParams: configResponse.config || {}
+            configState: configResponse.state,
+            currentParams: configResponse.current_params || {}
           }
         }
         setMessages(prev => [...prev, aiMessage])
       } else if (reportType === '状态评估') {
         // 状态评估弹出选择弹窗，不显示AI消息
-        const availableItems = configResponse.config?.availableItems || []
+        const availableItems = configResponse.current_params?.availableItems || []
         setAvailableEvalItems(availableItems)
         // 默认全选所有评估项
         setSelectedEvalItems(availableItems.map((item: {id: string, name: string}) => item.id))
         setStatusEvalModalVisible(true)
-      } else {
-        // 完整报表暂不支持，不显示任何内容
-        // 不显示AI消息
       }
 
       // 将选择的报表类型写入最近一次上传文件的元数据JSON
