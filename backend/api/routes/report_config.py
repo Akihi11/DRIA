@@ -95,10 +95,15 @@ class ReportConfigManager:
             if isinstance(value, (int, float)):
                 if isinstance(value, float) and value.is_integer():
                     return str(int(value))
+                # 如果是整数，直接返回字符串
+                if isinstance(value, int):
+                    return str(value)
                 formatted = f"{value:g}"
                 if 'e' in formatted.lower():
                     formatted = str(value)
-                formatted = formatted.rstrip('0').rstrip('.')
+                # 只在小数部分去除尾部0，整数部分保留所有数字
+                if '.' in formatted:
+                    formatted = formatted.rstrip('0').rstrip('.')
                 return formatted
             return str(value)
         
@@ -605,7 +610,7 @@ class ReportConfigManager:
                         f"{_build_condition_params_message(cond1, '条件一')}\n\n"
                         f"【可修改的参数】：\n"
                         f"- 监控通道（channel）：可从已选择的通道中选择\n"
-                        f"- 统计方法（statistic）：可改为 平均值/最大值/最小值/中位数 等\n"
+                        f"- 统计方法（statistic）：可改为 平均值/最大值/最小值/中位数/变化率 等\n"
                         f"- 持续时长（duration_sec）：单位秒\n"
                         f"- 判断依据（logic）：可改为 大于/小于/大于等于/小于等于\n"
                         f"- 阈值（threshold）：数值\n\n"
@@ -626,7 +631,7 @@ class ReportConfigManager:
                         f"{_build_condition_params_message(cond2, '条件二')}\n\n"
                         f"【可修改的参数】：\n"
                         f"- 监控通道（channel）：可从已选择的通道中选择\n"
-                        f"- 统计方法（statistic）：默认\"变化率\"，可改为 平均值/最大值/最小值/有效值/变化率\n"
+                        f"- 统计方法（statistic）：可改为 平均值/最大值/最小值/变化率 等\n"
                         f"- 持续时长（duration_sec）：单位秒\n"
                         f"- 判断依据（logic）：可改为 大于/小于/大于等于/小于等于\n"
                         f"- 阈值（threshold）：数值\n\n"
@@ -650,15 +655,9 @@ class ReportConfigManager:
                         f"{_build_condition_params_message(cond1, '条件一')}\n"
                         f"{_build_condition_params_message(cond2, '条件二')}\n\n"
                         f"【可修改的参数】：\n\n"
-                        f"条件一：\n"
+                        f"条件一&二：\n"
                         f"- 监控通道（channel）：可从已选择的通道中选择\n"
-                        f"- 统计方法（statistic）：可改为 平均值/最大值/最小值/中位数 等\n"
-                        f"- 持续时长（duration_sec）：单位秒\n"
-                        f"- 判断依据（logic）：可改为 大于/小于/大于等于/小于等于\n"
-                        f"- 阈值（threshold）：数值\n\n"
-                        f"条件二：\n"
-                        f"- 监控通道（channel）：可从已选择的通道中选择\n"
-                        f"- 统计方法（statistic）：默认\"变化率\"，可改为 平均值/最大值/最小值/有效值/变化率\n"
+                        f"- 统计方法（statistic）：可改为 平均值/最大值/最小值/变化率 等\n"
                         f"- 持续时长（duration_sec）：单位秒\n"
                         f"- 判断依据（logic）：可改为 大于/小于/大于等于/小于等于\n"
                         f"- 阈值（threshold）：数值\n\n"
@@ -675,7 +674,7 @@ class ReportConfigManager:
                     session_id=session_id,
                     state=ConfigState.PARAMETER_CONFIG,
                     message=message_text,
-                    suggested_actions=[],  # 不使用按钮，让用户用自然语言对话
+                    suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                     current_params=params
                 )
         
@@ -691,10 +690,15 @@ class ReportConfigManager:
                 if isinstance(value, (int, float)):
                     if isinstance(value, float) and value.is_integer():
                         return str(int(value))
+                    # 如果是整数，直接返回字符串
+                    if isinstance(value, int):
+                        return str(value)
                     formatted = f"{value:g}"
                     if 'e' in formatted.lower():
                         formatted = str(value)
-                    formatted = formatted.rstrip('0').rstrip('.')
+                    # 只在小数部分去除尾部0，整数部分保留所有数字
+                    if '.' in formatted:
+                        formatted = formatted.rstrip('0').rstrip('.')
                     return formatted
                 return str(value)
             
@@ -734,7 +738,7 @@ class ReportConfigManager:
                                 session_id=session_id,
                                 state=ConfigState.PARAMETER_CONFIG,
                                 message=f"已更改监控通道为 {new_channel}。{_msg_for_condition(condition, '条件一')}",
-                                suggested_actions=[],
+                                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                 current_params=params
                             )
                         else:
@@ -742,7 +746,7 @@ class ReportConfigManager:
                                 session_id=session_id,
                                 state=ConfigState.PARAMETER_CONFIG,
                                 message=f"未能识别您要选择的通道。可选通道：{', '.join(display_channels)}\n{_msg_for_condition(condition, '条件一')}\n请明确指定通道名，例如：'监控通道改为 {display_channels[0] if display_channels else '通道名'}'。",
-                                suggested_actions=[],
+                                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                 current_params=params
                             )
                     # 尝试匹配字段并更新
@@ -772,7 +776,7 @@ class ReportConfigManager:
                                             session_id=session_id,
                                             state=ConfigState.PARAMETER_CONFIG,
                                             message=f"统计时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。",
-                                            suggested_actions=[],
+                                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                             current_params=params
                                         )
                                 # 规范化logic值：将中文转换为符号，去除空格
@@ -817,7 +821,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
                                 message=f"已更改{field_name}为{actual_value}。{_msg_for_condition(condition, '条件一')}",
-                            suggested_actions=[],
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                             current_params=params
                         )
                     else:
@@ -826,22 +830,22 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
                             message=f"未能识别要修改的参数。{_msg_for_condition(condition, '条件一')}\n请明确说明要修改的参数，例如：'把阈值改为2000'、'修改统计方法为最大值'。",
-                            suggested_actions=[],
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                             current_params=params
                         )
                 elif action in ['确认', '下一步', '下一步骤', '继续', '确认配置', '好了', 'ok']:
-                    # 确认配置，保存并进入生成状态
+                    # 确认配置，保存并进入确认状态
                     logger.info(f"[确认配置操作-条件一] session_id: {session_id}, action: {action}, 当前状态: {current_state}")
                     logger.info(f"[确认配置操作-条件一] 开始保存配置到config_session.json")
                     self._save_display_channels_to_json(session, params)
                     self._save_conditions_to_json(session, params)
-                    logger.info(f"[确认配置操作-条件一] 配置已保存，状态从 {current_state} 切换到 GENERATING")
-                    session['state'] = ConfigState.GENERATING
-                    return ConfigResponse(
+                    logger.info(f"[确认配置操作-条件一] 配置已保存，状态从 {current_state} 切换到 CONFIRMATION")
+                    session['state'] = ConfigState.CONFIRMATION
+                    return create_response(
                         session_id=session_id,
-                        state=ConfigState.GENERATING,
-                        message="配置已确认，正在准备生成报表。\n如需修改配置，请直接使用自然语言修改参数，例如：'把条件一的阈值改为2000'。",
-                        suggested_actions=[],
+                        state=ConfigState.CONFIRMATION,
+                        message=self.get_confirmation_message(report_type, params),
+                        suggested_actions=['返回上一步'],
                         current_params=params
                     )
                 else:
@@ -850,7 +854,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.PARAMETER_CONFIG,
                         message=_msg_for_condition(condition, '条件一') + "\n您可以使用自然语言修改参数，例如：'把阈值改为2000'、'修改统计方法为最大值'、'设置持续时长为5秒'、'监控通道改为系统电压'。",
-                        suggested_actions=[],
+                        suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                         current_params=params
                     )
             #########################################################################################
@@ -874,7 +878,7 @@ class ReportConfigManager:
                                 session_id=session_id,
                                 state=ConfigState.PARAMETER_CONFIG,
                                 message=f"已更改监控通道为 {new_channel}。{_msg_for_condition(condition, '条件二')}",
-                                suggested_actions=[],
+                                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                 current_params=params
                             )
                         else:
@@ -882,7 +886,7 @@ class ReportConfigManager:
                                 session_id=session_id,
                                 state=ConfigState.PARAMETER_CONFIG,
                                 message=f"未能识别您要选择的通道。可选通道：{', '.join(display_channels)}\n{_msg_for_condition(condition, '条件二')}\n请明确指定通道名，例如：'监控通道改为 {display_channels[0] if display_channels else '通道名'}'。",
-                                suggested_actions=[],
+                                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                 current_params=params
                             )
                     # 尝试匹配字段并更新
@@ -909,7 +913,7 @@ class ReportConfigManager:
                                             session_id=session_id,
                                             state=ConfigState.PARAMETER_CONFIG,
                                             message=f"统计时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。",
-                                            suggested_actions=[],
+                                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                             current_params=params
                                         )
                                 # 规范化logic值：将中文转换为符号，去除空格
@@ -952,7 +956,7 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
                                 message=f"已更改{field_name}为{actual_value}。{_msg_for_condition(condition, '条件二')}",
-                            suggested_actions=[],
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                             current_params=params
                         )
                     else:
@@ -961,22 +965,22 @@ class ReportConfigManager:
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
                             message=f"未能识别要修改的参数。{_msg_for_condition(condition, '条件二')}\n请明确说明要修改的参数，例如：'把阈值改为2000'、'修改统计方法为最大值'。",
-                            suggested_actions=[],
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                             current_params=params
                         )
                 elif action in ['确认', '下一步', '下一步骤', '继续', '确认配置', '好了', 'ok']:
-                    # 确认配置，保存并进入生成状态
+                    # 确认配置，保存并进入确认状态
                     logger.info(f"[确认配置操作-条件二] session_id: {session_id}, action: {action}, 当前状态: {current_state}")
                     logger.info(f"[确认配置操作-条件二] 开始保存配置到config_session.json")
                     self._save_display_channels_to_json(session, params)
                     self._save_conditions_to_json(session, params)
-                    logger.info(f"[确认配置操作-条件二] 配置已保存，状态从 {current_state} 切换到 GENERATING")
-                    session['state'] = ConfigState.GENERATING
-                    return ConfigResponse(
+                    logger.info(f"[确认配置操作-条件二] 配置已保存，状态从 {current_state} 切换到 CONFIRMATION")
+                    session['state'] = ConfigState.CONFIRMATION
+                    return create_response(
                         session_id=session_id,
-                        state=ConfigState.GENERATING,
-                        message="配置已确认，正在准备生成报表。\n如需修改配置，请直接使用自然语言修改参数，例如：'把条件一的阈值改为2000'。",
-                        suggested_actions=[],
+                        state=ConfigState.CONFIRMATION,
+                        message=self.get_confirmation_message(report_type, params),
+                        suggested_actions=['返回上一步'],
                         current_params=params
                     )
                 else:
@@ -985,11 +989,20 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.PARAMETER_CONFIG,
                         message=_msg_for_condition(condition, '条件二') + "\n您可以使用自然语言修改参数，例如：'把阈值改为2000'、'修改统计方法为最大值'、'设置持续时长为5秒'。",
-                        suggested_actions=[],
+                        suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                         current_params=params
                     )
             #########################################################################################
             elif combination == 'AND':
+                # 辅助函数：生成同时包含条件一和条件二的消息
+                def _msg_for_both_conditions(condition1: dict, condition2: dict, prefix_msg: str = ""):
+                    """生成同时显示条件一和条件二的消息"""
+                    msg1 = _msg_for_condition(condition1, '条件一')
+                    msg2 = _msg_for_condition(condition2, '条件二')
+                    if prefix_msg:
+                        return prefix_msg + msg1 + "\n" + msg2
+                    return msg1 + "\n" + msg2
+                
                 # 优先级：1. 用户明确指定"条件一"或"条件二" -> 使用指定的条件
                 #        2. 用户未指定 -> 使用last_modified_condition（上一次修改的条件）
                 #        3. 都没有 -> 默认条件一
@@ -1009,6 +1022,10 @@ class ReportConfigManager:
                     else:
                         # 如果last_modified_condition也没有，默认条件一
                         target_condition = 'condition1'
+                
+                # 获取两个条件，用于生成消息
+                condition1 = trigger_logic.get('condition1', {})
+                condition2 = trigger_logic.get('condition2', {})
                 
                 # 根据目标条件决定处理哪个条件
                 if target_condition == 'condition1':
@@ -1034,16 +1051,16 @@ class ReportConfigManager:
                                 return ConfigResponse(
                                     session_id=session_id,
                                     state=ConfigState.PARAMETER_CONFIG,
-                                    message=f"已更改监控通道为 {new_channel}。{_msg_for_condition(condition, '条件一')}",
-                                    suggested_actions=[],
+                                    message=_msg_for_both_conditions(condition, condition2, f"已更改监控通道为 {new_channel}。"),
+                                    suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                     current_params=params
                                 )
                             else:
                                 return ConfigResponse(
                                     session_id=session_id,
                                     state=ConfigState.PARAMETER_CONFIG,
-                                    message=f"未能识别您要选择的通道。可选通道：{', '.join(display_channels)}\n{_msg_for_condition(condition, '条件一')}\n请明确指定通道名，例如：'监控通道改为 {display_channels[0] if display_channels else '通道名'}'。",
-                                    suggested_actions=[],
+                                    message=f"未能识别您要选择的通道。可选通道：{', '.join(display_channels)}\n" + _msg_for_both_conditions(condition, condition2) + f"\n请明确指定通道名，例如：'监控通道改为 {display_channels[0] if display_channels else '通道名'}'。",
+                                    suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                     current_params=params
                                 )
                         # 尝试匹配字段并更新
@@ -1073,7 +1090,7 @@ class ReportConfigManager:
                                                 session_id=session_id,
                                                 state=ConfigState.PARAMETER_CONFIG,
                                                 message=f"统计时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。",
-                                                suggested_actions=[],
+                                                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                                 current_params=params
                                             )
                                     condition[v] = extracted_value
@@ -1112,8 +1129,8 @@ class ReportConfigManager:
                             return ConfigResponse(
                                 session_id=session_id,
                                 state=ConfigState.PARAMETER_CONFIG,
-                                message=f"已更改{field_name}为{actual_value}。{_msg_for_condition(condition,'条件一')}",
-                                suggested_actions=[],
+                                message=_msg_for_both_conditions(condition, condition2, f"已更改{field_name}为{actual_value}。"),
+                                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                 current_params=params
                             )
                         else:
@@ -1121,8 +1138,8 @@ class ReportConfigManager:
                             return ConfigResponse(
                                 session_id=session_id,
                                 state=ConfigState.PARAMETER_CONFIG,
-                                message=f"未能识别要修改的参数。{_msg_for_condition(condition, '条件一')}\n请明确说明要修改的参数，例如：'把条件一的阈值改为2000'、'修改统计方法为最大值'。",
-                                suggested_actions=[],
+                                message=f"未能识别要修改的参数。\n" + _msg_for_both_conditions(condition, condition2) + "\n请明确说明要修改的参数，例如：'把条件一的阈值改为2000'、'修改统计方法为最大值'。",
+                                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                 current_params=params
                             )
                     elif action in ['下一步', '下一步骤', '继续']:
@@ -1134,20 +1151,20 @@ class ReportConfigManager:
                         return ConfigResponse(
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
-                            message=_msg_for_condition(trigger_logic.get('condition2', {}), '条件二')+"\n请继续编辑条件二，您可以使用自然语言修改参数，例如：'把条件二的阈值改为2000'、'监控通道改为系统电压'。",
-                            suggested_actions=[],
+                            message=_msg_for_both_conditions(condition1, trigger_logic.get('condition2', {}))+"\n请继续编辑条件二，您可以使用自然语言修改参数，例如：'把条件二的阈值改为2000'、'监控通道改为系统电压'。",
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                             current_params=params
                         )
                     elif action in ['确认', '确认配置', '好了', 'ok']:
-                        # 确认配置，保存并进入生成状态
+                        # 确认配置，保存并进入确认状态
                         self._save_display_channels_to_json(session, params)
                         self._save_conditions_to_json(session, params)
-                        session['state'] = ConfigState.GENERATING
-                        return ConfigResponse(
+                        session['state'] = ConfigState.CONFIRMATION
+                        return create_response(
                             session_id=session_id,
-                            state=ConfigState.GENERATING,
-                            message="配置已确认，正在准备生成报表。\n如需修改配置，请回复'返回上一步'或'修改配置'，或直接使用自然语言修改参数，例如：'把条件一的阈值改为2000'。",
-                            suggested_actions=['返回上一步', '修改配置'],
+                            state=ConfigState.CONFIRMATION,
+                            message=self.get_confirmation_message(report_type, params),
+                            suggested_actions=['返回上一步'],
                             current_params=params
                         )
                     else:
@@ -1155,8 +1172,8 @@ class ReportConfigManager:
                         return ConfigResponse(
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
-                            message=_msg_for_condition(condition, '条件一')+ "\n您可以使用自然语言修改参数，例如：'把条件一的阈值改为2000'、'修改统计方法为最大值'、'设置持续时长为5秒'。",
-                            suggested_actions=[],
+                            message=_msg_for_both_conditions(condition, condition2) + "\n您可以使用自然语言修改参数，例如：'把条件一的阈值改为2000'、'修改统计方法为最大值'、'设置持续时长为5秒'。",
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                             current_params=params
                         )
                 elif target_condition == 'condition2':
@@ -1182,16 +1199,16 @@ class ReportConfigManager:
                                 return ConfigResponse(
                                     session_id=session_id,
                                     state=ConfigState.PARAMETER_CONFIG,
-                                    message=f"已更改监控通道为 {new_channel}。{_msg_for_condition(condition, '条件二')}",
-                                    suggested_actions=[],
+                                    message=_msg_for_both_conditions(condition1, condition, f"已更改监控通道为 {new_channel}。"),
+                                    suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                     current_params=params
                                 )
                             else:
                                 return ConfigResponse(
                                     session_id=session_id,
                                     state=ConfigState.PARAMETER_CONFIG,
-                                    message=f"未能识别您要选择的通道。可选通道：{', '.join(display_channels)}\n{_msg_for_condition(condition, '条件二')}\n请明确指定通道名，例如：'监控通道改为 {display_channels[0] if display_channels else '通道名'}'。",
-                                    suggested_actions=[],
+                                    message=f"未能识别您要选择的通道。可选通道：{', '.join(display_channels)}\n" + _msg_for_both_conditions(condition1, condition) + f"\n请明确指定通道名，例如：'监控通道改为 {display_channels[0] if display_channels else '通道名'}'。",
+                                    suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                     current_params=params
                                 )
                         # 尝试匹配字段并更新
@@ -1218,7 +1235,7 @@ class ReportConfigManager:
                                                 session_id=session_id,
                                                 state=ConfigState.PARAMETER_CONFIG,
                                                 message=f"统计时长必须在0.1s~50s之间，您输入的值为{extracted_value}。请重新输入。",
-                                                suggested_actions=[],
+                                                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                                 current_params=params
                                             )
                                     condition[v] = extracted_value
@@ -1257,8 +1274,8 @@ class ReportConfigManager:
                             return ConfigResponse(
                                 session_id=session_id,
                                 state=ConfigState.PARAMETER_CONFIG,
-                                message=f"已更改{field_name}为{actual_value}。{_msg_for_condition(condition,'条件二')}",
-                                suggested_actions=[],
+                                message=_msg_for_both_conditions(condition1, condition, f"已更改{field_name}为{actual_value}。"),
+                                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                 current_params=params
                             )
                         else:
@@ -1266,20 +1283,20 @@ class ReportConfigManager:
                             return ConfigResponse(
                                 session_id=session_id,
                                 state=ConfigState.PARAMETER_CONFIG,
-                                message=f"未能识别要修改的参数。{_msg_for_condition(condition, '条件二')}\n请明确说明要修改的参数，例如：'把条件二的阈值改为2000'、'修改统计方法为最大值'。",
-                                suggested_actions=[],
+                                message=f"未能识别要修改的参数。\n" + _msg_for_both_conditions(condition1, condition) + "\n请明确说明要修改的参数，例如：'把条件二的阈值改为2000'、'修改统计方法为最大值'。",
+                                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                                 current_params=params
                             )
                     elif action in ['确认', '确认配置', '好了', 'ok']:
-                        # 确认配置，保存并进入生成状态
+                        # 确认配置，保存并进入确认状态
                         self._save_display_channels_to_json(session, params)
                         self._save_conditions_to_json(session, params)
-                        session['state'] = ConfigState.GENERATING
-                        return ConfigResponse(
+                        session['state'] = ConfigState.CONFIRMATION
+                        return create_response(
                             session_id=session_id,
-                            state=ConfigState.GENERATING,
-                            message="配置已确认，正在准备生成报表。\n如需修改配置，请回复'返回上一步'或'修改配置'，或直接使用自然语言修改参数，例如：'把条件一的阈值改为2000'。",
-                            suggested_actions=['返回上一步', '修改配置'],
+                            state=ConfigState.CONFIRMATION,
+                            message=self.get_confirmation_message(report_type, params),
+                            suggested_actions=['返回上一步'],
                             current_params=params
                         )
                     else:
@@ -1287,8 +1304,8 @@ class ReportConfigManager:
                         return ConfigResponse(
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
-                            message=_msg_for_condition(condition, '条件二') + "\n您可以使用自然语言修改参数，例如：'把条件二的阈值改为2000'、'修改统计方法为最大值'、'设置持续时长为5秒'。",
-                            suggested_actions=[],
+                            message=_msg_for_both_conditions(condition1, condition) + "\n您可以使用自然语言修改参数，例如：'把条件二的阈值改为2000'、'修改统计方法为最大值'、'设置持续时长为5秒'。",
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                             current_params=params
                         )
                 else:
@@ -1299,15 +1316,15 @@ class ReportConfigManager:
                     
                     # 检查是否是确认操作
                     if action in ['确认', '下一步', '下一步骤', '继续', '确认配置']:
-                        # 确认配置，保存并进入生成状态
+                        # 确认配置，保存并进入确认状态
                         self._save_display_channels_to_json(session, params)
                         self._save_conditions_to_json(session, params)
-                        session['state'] = ConfigState.GENERATING
-                        return ConfigResponse(
+                        session['state'] = ConfigState.CONFIRMATION
+                        return create_response(
                             session_id=session_id,
-                            state=ConfigState.GENERATING,
-                            message="配置已确认，准备生成报表。",
-                            suggested_actions=[],
+                            state=ConfigState.CONFIRMATION,
+                            message=self.get_confirmation_message(report_type, params),
+                            suggested_actions=['返回上一步'],
                             current_params=params
                         )
                     
@@ -1315,7 +1332,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.PARAMETER_CONFIG,
                         message=f"未能识别您要修改的条件。{_msg_for_condition(condition, condition_name)}\n请明确指定要修改的条件，例如：'把条件一的阈值改为2000'、'修改条件二的统计方法为最大值'。",
-                        suggested_actions=[],
+                        suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                         current_params=params
                     )
             # 兜底：如果没有匹配到任何组合逻辑，提示用户
@@ -1323,7 +1340,7 @@ class ReportConfigManager:
                 session_id=session_id,
                 state=ConfigState.PARAMETER_CONFIG,
                 message="未能识别您的操作。请使用自然语言修改参数，例如：'把阈值改为2000'、'修改统计方法为最大值'。",
-                suggested_actions=[],
+                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                 current_params=params
             )
         
@@ -2565,47 +2582,289 @@ class ReportConfigManager:
                         current_params=params
                     )
             
-            # 功能计算类型的返回上一步逻辑
-            if action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
-                # 根据通道情况返回到合适的步骤
-                available_channels = params.get('availableChannels', [])
-                channel_check = self._check_channels(available_channels)
-                has_ng = channel_check['has_ng']
-                has_np = channel_check['has_np']
-                
-                # 如果有Np通道，返回到Np余转时间配置
-                if has_np:
-                    session['state'] = ConfigState.RUNDOWN_NP_CONFIG
-                    rundown_np = params.setdefault('rundown_np', {})
+            # 稳态参数类型的返回上一步逻辑
+            elif report_type == ReportType.STEADY_STATE:
+                # 使用strip()处理可能的空格，确保能正确匹配"返回上一步"
+                action_normalized = action.strip() if action else ''
+                if action_normalized in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
+                    # 返回到参数配置状态
+                    session['state'] = ConfigState.PARAMETER_CONFIG
+                    trigger_logic = params.get('triggerLogic', {})
+                    combination = trigger_logic.get('combination', 'AND')
+                    last_modified = session.get('last_modified_condition', None)
+                    display_channels = params.get('displayChannels', [])
+                    
+                    # 格式化数值函数（与PARAMETER_CONFIG状态保持一致）
+                    def _format_value_for_display(value):
+                        """格式化数值用于显示：整数显示为整数，小数保留实际小数位数"""
+                        if value is None or value == '':
+                            return ''
+                        if isinstance(value, (int, float)):
+                            if isinstance(value, float) and value.is_integer():
+                                return str(int(value))
+                            if isinstance(value, int):
+                                return str(value)
+                            formatted = f"{value:g}"
+                            if 'e' in formatted.lower():
+                                formatted = str(value)
+                            if '.' in formatted:
+                                formatted = formatted.rstrip('0').rstrip('.')
+                            return formatted
+                        return str(value)
+                    
+                    # 使用与PARAMETER_CONFIG状态相同的消息格式函数
+                    def _msg_for_condition(cond: dict, cond_name: str):
+                        statistic = cond.get('statistic', '')
+                        # 如果条件二没有设置statistic，默认显示"变化率"
+                        if cond_name == '条件二' and not statistic:
+                            statistic = '变化率'
+                        
+                        duration_sec = _format_value_for_display(cond.get('duration_sec', ''))
+                        threshold = _format_value_for_display(cond.get('threshold', ''))
+                        
+                        return f"\n【当前为{cond_name}，参数如下】\n" \
+                               f"- 监控通道: {cond.get('channel', '')} (可选通道: {', '.join(display_channels)})\n" \
+                               f"- 统计方法: {statistic}\n" \
+                               f"- 持续时长(秒): {duration_sec}\n" \
+                               f"- 判断依据: {cond.get('logic', '')}\n" \
+                               f"- 阈值: {threshold}"
+                    
+                    # 根据最后修改的条件或组合逻辑，显示对应的条件信息
+                    if combination == 'AND':
+                        # 在AND组合逻辑下，同时显示条件一和条件二
+                        condition1 = trigger_logic.get('condition1', {})
+                        condition2 = trigger_logic.get('condition2', {})
+                        message = _msg_for_condition(condition1, '条件一') + "\n" + _msg_for_condition(condition2, '条件二')
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.PARAMETER_CONFIG,
+                            message=message,
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
+                            current_params=params
+                        )
+                    elif combination == 'Cond1_Only':
+                        condition = trigger_logic.get('condition1', {})
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.PARAMETER_CONFIG,
+                            message=_msg_for_condition(condition, '条件一') ,
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
+                            current_params=params
+                        )
+                    elif combination == 'Cond2_Only':
+                        condition = trigger_logic.get('condition2', {})
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.PARAMETER_CONFIG,
+                            message=_msg_for_condition(condition, '条件二'),
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
+                            current_params=params
+                        )
+                elif action_normalized == '确认生成':
+                    session['state'] = ConfigState.GENERATING
+                    # 持久化配置到 backend/config_sessions/{file_id}.json（如果上传时已创建则更新，否则创建新文件）
+                    try:
+                        backend_dir = Path(__file__).resolve().parent.parent.parent  # backend 目录
+                        out_dir = backend_dir / "config_sessions"
+                        out_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        # 通过file_id查找对应的JSON文件（文件名是时间戳格式）
+                        file_id = session.get('file_id')
+                        out_path = None
+                        existing_config = {}
+                        
+                        if file_id:
+                            # 查找所有JSON文件，找到fileId匹配的
+                            for json_file in out_dir.glob("*.json"):
+                                try:
+                                    with open(json_file, 'r', encoding='utf-8') as f:
+                                        cfg = json.load(f)
+                                        if cfg.get("fileId") == file_id:
+                                            out_path = json_file
+                                            existing_config = cfg
+                                            break
+                                except Exception:
+                                    continue
+                        
+                        # 如果没找到，创建一个新的（使用时间戳格式，包含毫秒）
+                        if out_path is None:
+                            timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]  # 包含毫秒
+                            out_path = out_dir / f"{timestamp_str}.json"
+                            existing_config = {}
+                        
+                        # 读取现有配置（如果找到但还没读取）
+                        if out_path.exists() and not existing_config:
+                            try:
+                                with open(out_path, 'r', encoding='utf-8') as f:
+                                    existing_config = json.load(f)
+                            except Exception as read_err:
+                                logger.warning(f"读取已有配置文件失败: {read_err}")
+                        
+                        # 根据报表类型构建配置
+                        report_cfg = self._build_steady_state_config(params)
+                        
+                        # 合并配置：保留已有信息（sourceFileId, fileId, uploadTime, channels），更新reportConfig
+                        final_config = {
+                            **existing_config,  # 保留已有字段
+                            "reportConfig": report_cfg.get("reportConfig", {})
+                        }
+                        # 如果没有sourceFileId等字段，则添加
+                        if "sourceFileId" not in final_config:
+                            final_config["sourceFileId"] = existing_config.get("sourceFileId", "")
+                        if "fileId" not in final_config:
+                            final_config["fileId"] = file_id
+                        if "uploadTime" not in final_config:
+                            final_config["uploadTime"] = existing_config.get("uploadTime", datetime.now().isoformat())
+                        if "channels" not in final_config:
+                            final_config["channels"] = existing_config.get("channels", [])
+                        
+                        with open(out_path, 'w', encoding='utf-8') as f:
+                            json.dump(final_config, f, ensure_ascii=False, indent=2)
+                        
+                        logger.info(f"已保存配置到: {out_path}")
+                    except Exception as e:
+                        logger.error(f"保存配置失败: {e}", exc_info=True)
+                        import traceback
+                        traceback.print_exc()
                     return create_response(
                         session_id=session_id,
-                        state=ConfigState.RUNDOWN_NP_CONFIG,
-                        message=self._get_rundown_np_config_message(rundown_np, available_channels),
-                        suggested_actions=['上一步', '确认配置'],
-                        current_params=params
+                        state=ConfigState.GENERATING,
+                        message="正在生成报表，请稍候...",
+                        suggested_actions=[],
+                        current_params=params,
+                        is_complete=True
                     )
-                # 如果有Ng通道但没有Np通道，返回到Ng余转时间配置
-                elif has_ng:
-                    session['state'] = ConfigState.RUNDOWN_NG_CONFIG
-                    rundown_ng = params.setdefault('rundown_ng', {})
-                    return create_response(
-                        session_id=session_id,
-                        state=ConfigState.RUNDOWN_NG_CONFIG,
-                        message=self._get_rundown_ng_config_message(rundown_ng, available_channels),
-                        suggested_actions=['上一步', '下一步'],
-                        current_params=params
-                    )
-                # 如果既没有Ng也没有Np通道，返回到点火时间配置
                 else:
-                    session['state'] = ConfigState.IGNITION_TIME_CONFIG
-                    ignition_time = params.setdefault('ignition_time', {})
+                    # 在CONFIRMATION状态下，如果action不是"返回上一步"也不是"确认生成"，显示确认消息
+                    # 但需要确保"返回上一步"已经被正确处理，不应该进入这个分支
+                    if action_normalized in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
+                        # 如果action是"返回上一步"但没有被上面的if匹配到，可能是action值有问题
+                        # 这里再次尝试处理，确保能正确返回
+                        session['state'] = ConfigState.PARAMETER_CONFIG
+                        trigger_logic = params.get('triggerLogic', {})
+                        combination = trigger_logic.get('combination', 'AND')
+                        last_modified = session.get('last_modified_condition', None)
+                        display_channels = params.get('displayChannels', [])
+                        
+                        # 格式化数值函数（与PARAMETER_CONFIG状态保持一致）
+                        def _format_value_for_display(value):
+                            """格式化数值用于显示：整数显示为整数，小数保留实际小数位数"""
+                            if value is None or value == '':
+                                return ''
+                            if isinstance(value, (int, float)):
+                                if isinstance(value, float) and value.is_integer():
+                                    return str(int(value))
+                                if isinstance(value, int):
+                                    return str(value)
+                                formatted = f"{value:g}"
+                                if 'e' in formatted.lower():
+                                    formatted = str(value)
+                                if '.' in formatted:
+                                    formatted = formatted.rstrip('0').rstrip('.')
+                                return formatted
+                            return str(value)
+                        
+                        # 使用与PARAMETER_CONFIG状态相同的消息格式函数
+                        def _msg_for_condition(cond: dict, cond_name: str):
+                            statistic = cond.get('statistic', '')
+                            # 如果条件二没有设置statistic，默认显示"变化率"
+                            if cond_name == '条件二' and not statistic:
+                                statistic = '变化率'
+                            
+                            duration_sec = _format_value_for_display(cond.get('duration_sec', ''))
+                            threshold = _format_value_for_display(cond.get('threshold', ''))
+                            
+                            return f"\n【当前为{cond_name}，参数如下】\n" \
+                                   f"- 监控通道: {cond.get('channel', '')} (可选通道: {', '.join(display_channels)})\n" \
+                                   f"- 统计方法: {statistic}\n" \
+                                   f"- 持续时长(秒): {duration_sec}\n" \
+                                   f"- 判断依据: {cond.get('logic', '')}\n" \
+                                   f"- 阈值: {threshold}"
+                        
+                        # 根据最后修改的条件或组合逻辑，显示对应的条件信息
+                        if combination == 'AND':
+                            # 在AND组合逻辑下，从确认状态返回时，同时显示条件一和条件二
+                            condition1 = trigger_logic.get('condition1', {})
+                            condition2 = trigger_logic.get('condition2', {})
+                            message = _msg_for_condition(condition1, '条件一') + "\n" + _msg_for_condition(condition2, '条件二')
+                            return create_response(
+                                session_id=session_id,
+                                state=ConfigState.PARAMETER_CONFIG,
+                                message=message,
+                                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
+                                current_params=params
+                            )
+                        elif combination == 'Cond1_Only':
+                            condition = trigger_logic.get('condition1', {})
+                            return create_response(
+                                session_id=session_id,
+                                state=ConfigState.PARAMETER_CONFIG,
+                                message=_msg_for_condition(condition, '条件一'),
+                                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
+                                current_params=params
+                            )
+                        elif combination == 'Cond2_Only':
+                            condition = trigger_logic.get('condition2', {})
+                            return create_response(
+                                session_id=session_id,
+                                state=ConfigState.PARAMETER_CONFIG,
+                                message=_msg_for_condition(condition, '条件二'),
+                                suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
+                                current_params=params
+                            )
+                    
+                    # 在CONFIRMATION状态下，显示确认消息
+                    confirmation_message = self.get_confirmation_message(report_type, params)
                     return create_response(
                         session_id=session_id,
-                        state=ConfigState.IGNITION_TIME_CONFIG,
-                        message=self._get_ignition_time_config_message(ignition_time, available_channels),
-                        suggested_actions=['上一步', '下一步'],
+                        state=ConfigState.CONFIRMATION,
+                        message=confirmation_message,
+                        suggested_actions=['返回上一步'],
                         current_params=params
                     )
+            
+            # 功能计算类型的返回上一步逻辑
+            elif report_type == ReportType.FUNCTION_CALC:
+                if action in ['返回上一步', '上一步', '返回', '返回上一级', '返回上一页']:
+                    # 根据通道情况返回到合适的步骤
+                    available_channels = params.get('availableChannels', [])
+                    channel_check = self._check_channels(available_channels)
+                    has_ng = channel_check['has_ng']
+                    has_np = channel_check['has_np']
+                    
+                    # 如果有Np通道，返回到Np余转时间配置
+                    if has_np:
+                        session['state'] = ConfigState.RUNDOWN_NP_CONFIG
+                        rundown_np = params.setdefault('rundown_np', {})
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.RUNDOWN_NP_CONFIG,
+                            message=self._get_rundown_np_config_message(rundown_np, available_channels),
+                            suggested_actions=['上一步', '确认配置'],
+                            current_params=params
+                        )
+                    # 如果有Ng通道但没有Np通道，返回到Ng余转时间配置
+                    elif has_ng:
+                        session['state'] = ConfigState.RUNDOWN_NG_CONFIG
+                        rundown_ng = params.setdefault('rundown_ng', {})
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.RUNDOWN_NG_CONFIG,
+                            message=self._get_rundown_ng_config_message(rundown_ng, available_channels),
+                            suggested_actions=['上一步', '下一步'],
+                            current_params=params
+                        )
+                    # 如果既没有Ng也没有Np通道，返回到点火时间配置
+                    else:
+                        session['state'] = ConfigState.IGNITION_TIME_CONFIG
+                        ignition_time = params.setdefault('ignition_time', {})
+                        return create_response(
+                            session_id=session_id,
+                            state=ConfigState.IGNITION_TIME_CONFIG,
+                            message=self._get_ignition_time_config_message(ignition_time, available_channels),
+                            suggested_actions=['上一步', '下一步'],
+                            current_params=params
+                        )
             elif action == '确认生成':
                 session['state'] = ConfigState.GENERATING
                 # 持久化配置到 backend/config_sessions/{file_id}.json（如果上传时已创建则更新，否则创建新文件）
@@ -2695,25 +2954,54 @@ class ReportConfigManager:
                     last_modified = session.get('last_modified_condition', None)
                     display_channels = params.get('displayChannels', [])
                     
-                    # 辅助函数：生成条件信息
-                    def _msg_for_condition_helper(cond: dict, cond_name: str, display_channels: list):
-                        if not cond:
-                            return f"{cond_name}尚未配置。"
-                        threshold = cond.get('threshold', '未设置')
-                        stat_method = cond.get('statMethod', '未设置')
-                        duration = cond.get('duration', '未设置')
-                        monitor_channel = cond.get('monitorChannel', '未设置')
-                        return f"{cond_name}当前配置：阈值={threshold}, 统计方法={stat_method}, 持续时长={duration}秒, 监控通道={monitor_channel}"
+                    # 格式化数值函数
+                    def _format_value_for_display(value):
+                        """格式化数值用于显示：整数显示为整数，小数保留实际小数位数"""
+                        if value is None or value == '':
+                            return ''
+                        if isinstance(value, (int, float)):
+                            if isinstance(value, float) and value.is_integer():
+                                return str(int(value))
+                            # 如果是整数，直接返回字符串
+                            if isinstance(value, int):
+                                return str(value)
+                            formatted = f"{value:g}"
+                            if 'e' in formatted.lower():
+                                formatted = str(value)
+                            # 只在小数部分去除尾部0，整数部分保留所有数字
+                            if '.' in formatted:
+                                formatted = formatted.rstrip('0').rstrip('.')
+                            return formatted
+                        return str(value)
+                    
+                    # 使用与PARAMETER_CONFIG状态相同的消息格式函数
+                    def _msg_for_condition(cond: dict, cond_name: str):
+                        statistic = cond.get('statistic', '')
+                        # 如果条件二没有设置statistic，默认显示"变化率"
+                        if cond_name == '条件二' and not statistic:
+                            statistic = '变化率'
+                        
+                        duration_sec = _format_value_for_display(cond.get('duration_sec', ''))
+                        threshold = _format_value_for_display(cond.get('threshold', ''))
+                        
+                        return f"\n【当前为{cond_name}，参数如下】\n" \
+                               f"- 监控通道: {cond.get('channel', '')} (可选通道: {', '.join(display_channels)})\n" \
+                               f"- 统计方法: {statistic}\n" \
+                               f"- 持续时长(秒): {duration_sec}\n" \
+                               f"- 判断依据: {cond.get('logic', '')}\n" \
+                               f"- 阈值: {threshold}"
                     
                     # 根据最后修改的条件或组合逻辑，显示对应的条件信息
                     if combination == 'AND':
-                        condition_to_show = last_modified if last_modified else '条件一'
-                        condition = trigger_logic.get('condition1' if condition_to_show == '条件一' else 'condition2', {})
+                        # 在AND组合逻辑下，同时显示条件一和条件二
+                        condition1 = trigger_logic.get('condition1', {})
+                        condition2 = trigger_logic.get('condition2', {})
+                        message = _msg_for_condition(condition1, '条件一') + "\n" + _msg_for_condition(condition2, '条件二')
                         return ConfigResponse(
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
-                            message=f"已返回配置修改状态。{_msg_for_condition_helper(condition, condition_to_show, display_channels)}\n您可以使用自然语言修改参数，例如：'把{condition_to_show}的阈值改为2000'、'修改统计方法为最大值'。",
-                            suggested_actions=[],
+                            message=message,
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                             current_params=params
                         )
                     elif combination == 'Cond1_Only':
@@ -2721,8 +3009,8 @@ class ReportConfigManager:
                         return ConfigResponse(
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
-                            message=f"已返回配置修改状态。{_msg_for_condition_helper(condition, '条件一', display_channels)}\n您可以使用自然语言修改参数，例如：'把条件一的阈值改为2000'、'修改统计方法为最大值'。",
-                            suggested_actions=[],
+                            message=_msg_for_condition(condition, '条件一'),
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                             current_params=params
                         )
                     elif combination == 'Cond2_Only':
@@ -2730,8 +3018,8 @@ class ReportConfigManager:
                         return ConfigResponse(
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
-                            message=f"已返回配置修改状态。{_msg_for_condition_helper(condition, '条件二', display_channels)}\n您可以使用自然语言修改参数，例如：'把条件二的阈值改为2000'、'修改统计方法为最大值'。",
-                            suggested_actions=[],
+                            message=_msg_for_condition(condition, '条件二'),
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                             current_params=params
                         )
                 else:
@@ -2740,7 +3028,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.PARAMETER_CONFIG,
                         message="已返回配置修改状态。请修改配置参数：",
-                        suggested_actions=[],
+                        suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                         current_params=params
                     )
             elif action == '取消配置' or action == '取消':
@@ -2763,10 +3051,15 @@ class ReportConfigManager:
                 if isinstance(value, (int, float)):
                     if isinstance(value, float) and value.is_integer():
                         return str(int(value))
+                    # 如果是整数，直接返回字符串
+                    if isinstance(value, int):
+                        return str(value)
                     formatted = f"{value:g}"
                     if 'e' in formatted.lower():
                         formatted = str(value)
-                    formatted = formatted.rstrip('0').rstrip('.')
+                    # 只在小数部分去除尾部0，整数部分保留所有数字
+                    if '.' in formatted:
+                        formatted = formatted.rstrip('0').rstrip('.')
                     return formatted
                 return str(value)
             
@@ -2795,35 +3088,52 @@ class ReportConfigManager:
                     last_modified = session.get('last_modified_condition', None)
                     display_channels = params.get('displayChannels', [])
                     
+                    # 使用与PARAMETER_CONFIG状态相同的消息格式函数
+                    def _msg_for_condition(cond: dict, cond_name: str):
+                        statistic = cond.get('statistic', '')
+                        # 如果条件二没有设置statistic，默认显示"变化率"
+                        if cond_name == '条件二' and not statistic:
+                            statistic = '变化率'
+                        
+                        duration_sec = _format_value_for_display_helper(cond.get('duration_sec', ''))
+                        threshold = _format_value_for_display_helper(cond.get('threshold', ''))
+                        
+                        return f"\n【当前为{cond_name}，参数如下】\n" \
+                               f"- 监控通道: {cond.get('channel', '')} (可选通道: {', '.join(display_channels)})\n" \
+                               f"- 统计方法: {statistic}\n" \
+                               f"- 持续时长(秒): {duration_sec}\n" \
+                               f"- 判断依据: {cond.get('logic', '')}\n" \
+                               f"- 阈值: {threshold}"
+                    
                     # 根据最后修改的条件或组合逻辑，显示对应的条件信息
                     if combination == 'AND':
-                        condition_to_show = last_modified if last_modified else '条件一'
-                        condition = trigger_logic.get('condition1' if condition_to_show == '条件一' else 'condition2', {})
+                        # 在AND组合逻辑下，同时显示条件一和条件二
+                        condition1 = trigger_logic.get('condition1', {})
+                        condition2 = trigger_logic.get('condition2', {})
+                        message = _msg_for_condition(condition1, '条件一') + "\n" + _msg_for_condition(condition2, '条件二')
                         return create_response(
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
-                            message=f"已返回配置修改状态。{_msg_for_condition_helper(condition, condition_to_show, display_channels)}\n您可以使用自然语言修改参数，例如：'把{condition_to_show}的阈值改为2000'、'修改统计方法为最大值'。",
-                            suggested_actions=[],
+                            message=message,
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                             current_params=params
                         )
                     elif combination == 'Cond1_Only':
                         condition = trigger_logic.get('condition1', {})
-                        display_channels = params.get('displayChannels', [])
                         return create_response(
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
-                            message=f"已返回配置修改状态。{_msg_for_condition_helper(condition, '条件一', display_channels)}\n您可以使用自然语言修改参数，例如：'把条件一的阈值改为2000'、'修改统计方法为最大值'。",
-                            suggested_actions=[],
+                            message=_msg_for_condition(condition, '条件一'),
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                             current_params=params
                         )
                     elif combination == 'Cond2_Only':
                         condition = trigger_logic.get('condition2', {})
-                        display_channels = params.get('displayChannels', [])
                         return create_response(
                             session_id=session_id,
                             state=ConfigState.PARAMETER_CONFIG,
-                            message=f"已返回配置修改状态。{_msg_for_condition_helper(condition, '条件二', display_channels)}\n您可以使用自然语言修改参数，例如：'把条件二的阈值改为2000'、'修改统计方法为最大值'。",
-                            suggested_actions=[],
+                            message=_msg_for_condition(condition, '条件二'),
+                            suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                             current_params=params
                         )
                 else:
@@ -2832,7 +3142,7 @@ class ReportConfigManager:
                         session_id=session_id,
                         state=ConfigState.PARAMETER_CONFIG,
                         message="已返回配置修改状态。请修改配置参数：",
-                        suggested_actions=[],  # 使用自然语言对话，不使用无法直接触发的按钮
+                        suggested_actions=self.get_current_actions(ConfigState.PARAMETER_CONFIG, report_type, params),
                         current_params=params
                     )
             
@@ -2972,6 +3282,8 @@ class ReportConfigManager:
                 return "稳态分析配置 - 第3步：配置参数\n\n您可以修改统计方法、阈值或时间窗口，或直接确认配置。"
             elif state == ConfigState.SELECT_JUDGE_CHANNEL:
                 return "稳态分析配置 - 第4步：选择判断通道\n\n请通过自然语言选择判断通道。"
+            elif state == ConfigState.CONFIRMATION:
+                return self.get_confirmation_message(report_type, params or {})
         elif report_type == ReportType.FUNCTION_CALC:
             params = params or {}
             available_channels = params.get('availableChannels', [])
@@ -3125,14 +3437,18 @@ class ReportConfigManager:
                         # 如果是整数（即使存储为float），显示为整数
                         if isinstance(value, float) and value.is_integer():
                             return str(int(value))
+                        # 如果是整数，直接返回字符串
+                        if isinstance(value, int):
+                            return str(value)
                         # 如果是小数，使用g格式（自动去除末尾的0）或转换为字符串后去除末尾的0
                         # 使用g格式可以自动处理科学计数法和去除末尾0
                         formatted = f"{value:g}"
                         # 如果g格式产生了科学计数法（包含e或E），使用原始值转换为字符串
                         if 'e' in formatted.lower():
                             formatted = str(value)
-                        # 去除末尾的0和小数点
-                        formatted = formatted.rstrip('0').rstrip('.')
+                        # 只在小数部分去除末尾的0和小数点，整数部分保留所有数字
+                        if '.' in formatted:
+                            formatted = formatted.rstrip('0').rstrip('.')
                         return formatted
                     return str(value)
                 
@@ -3229,7 +3545,10 @@ class ReportConfigManager:
         elif state == ConfigState.TRIGGER_COMBO:
             return ['仅用条件一', '仅用条件二', 'AND']
         elif state == ConfigState.PARAMETER_CONFIG:
-            return []  # 使用自然语言对话，不使用无法直接触发的按钮（如'修改统计方法'等）
+            # 稳态参数在配置过程中始终显示"确认配置"按钮
+            if report_type == ReportType.STEADY_STATE:
+                return ['确认配置']
+            return []  # 其他类型使用自然语言对话，不使用无法直接触发的按钮（如'修改统计方法'等）
         elif state == ConfigState.SELECT_JUDGE_CHANNEL:
             return []  # 通过自然语言选择，不使用按钮
         elif state == ConfigState.STATUS_EVAL_SELECT_ITEMS:
@@ -3253,6 +3572,9 @@ class ReportConfigManager:
                     actions.append('下一步')
             return actions
         elif state == ConfigState.CONFIRMATION:
+            # 稳态参数和功能计算在确认状态时显示"返回上一步"按钮
+            if report_type in [ReportType.STEADY_STATE, ReportType.FUNCTION_CALC]:
+                return ['返回上一步']
             return []
         elif state == ConfigState.GENERATING:
             return []  # 用户通过上方的完成配置按钮生成报表，不需要建议操作
@@ -3260,66 +3582,147 @@ class ReportConfigManager:
             return []
     
     def get_confirmation_message(self, report_type: str, params: Dict[str, Any]) -> str:
-        """获取确认消息（仅用于功能计算报表）"""
-        if report_type != ReportType.FUNCTION_CALC:
+        """获取确认消息（用于功能计算报表和稳态参数报表）"""
+        if report_type == ReportType.STEADY_STATE:
+            # 稳态参数确认消息
+            trigger_logic = params.get('triggerLogic', {})
+            display_channels = params.get('displayChannels', [])
+            combination = trigger_logic.get('combination', 'AND')
+            condition1 = trigger_logic.get('condition1', {})
+            condition2 = trigger_logic.get('condition2', {})
+            
+            def format_value(value):
+                """格式化数值用于显示"""
+                if value is None or value == '':
+                    return '未设置'
+                if isinstance(value, (int, float)):
+                    if isinstance(value, float) and value.is_integer():
+                        return str(int(value))
+                    # 如果是整数，直接返回字符串
+                    if isinstance(value, int):
+                        return str(value)
+                    formatted = f"{value:g}"
+                    if 'e' in formatted.lower():
+                        formatted = str(value)
+                    # 只在小数部分去除尾部0，整数部分保留所有数字
+                    if '.' in formatted:
+                        formatted = formatted.rstrip('0').rstrip('.')
+                    return formatted
+                return str(value)
+            
+            def format_condition(condition: Dict[str, Any], name: str) -> str:
+                """格式化单个条件"""
+                if not condition:
+                    return f"{name}：未设置"
+                
+                lines = [f"{name}："]
+                if 'channel' in condition:
+                    lines.append(f"  监控通道: {condition['channel']}")
+                if 'statistic' in condition:
+                    lines.append(f"  统计方法: {condition['statistic']}")
+                if 'duration_sec' in condition:
+                    lines.append(f"  持续时长: {format_value(condition['duration_sec'])}秒")
+                if 'logic' in condition:
+                    lines.append(f"  判断依据: {condition['logic']}")
+                if 'threshold' in condition:
+                    lines.append(f"  阈值: {format_value(condition['threshold'])}")
+                
+                return '\n'.join(lines) if len(lines) > 1 else f"{name}：未设置"
+            
+            config_lines = ["**配置确认**：", ""]
+            
+            # 显示通道
+            if display_channels:
+                config_lines.append(f"**展示通道**：{', '.join(display_channels)}")
+                config_lines.append("")
+            
+            # 显示组合逻辑
+            combination_map = {
+                'AND': 'AND（同时满足条件一和条件二）',
+                'Cond1_Only': '仅用条件一',
+                'Cond2_Only': '仅用条件二'
+            }
+            combination_display = combination_map.get(combination, combination)
+            config_lines.append(f"**组合逻辑**：{combination_display}")
+            config_lines.append("")
+            
+            # 显示条件一
+            if combination in ['AND', 'Cond1_Only']:
+                config_lines.append(format_condition(condition1, '**条件一**'))
+                config_lines.append("")
+            
+            # 显示条件二
+            if combination in ['AND', 'Cond2_Only']:
+                config_lines.append(format_condition(condition2, '**条件二**'))
+                config_lines.append("")
+            
+            # 移除最后一个空行
+            if config_lines and config_lines[-1] == "":
+                config_lines.pop()
+            
+            config_lines.append("\n\n请点击上方 **完成配置** 按钮进行报表生成。")
+            
+            return '\n'.join(config_lines)
+        elif report_type == ReportType.FUNCTION_CALC:
+            # 功能计算确认消息
+            time_base = params.get('time_base', {})
+            startup_time = params.get('startup_time', {})
+            ignition_time = params.get('ignition_time', {})
+            rundown_ng = params.get('rundown_ng', {})
+            rundown_np = params.get('rundown_np', {})
+            
+            def format_config_item(item: Dict[str, Any], name: str) -> str:
+                """格式化单个配置项"""
+                if not item:
+                    return f"{name}：未设置"
+                
+                lines = [f"{name}："]
+                if 'channel' in item:
+                    lines.append(f"  通道: {item['channel']}")
+                if 'statistic' in item:
+                    lines.append(f"  统计方法: {item['statistic']}")
+                if 'duration' in item:
+                    lines.append(f"  持续时长: {item['duration']}秒")
+                if 'logic' in item:
+                    lines.append(f"  判断依据: {item['logic']}")
+                if 'threshold' in item:
+                    lines.append(f"  阈值: {item['threshold']}")
+                if 'threshold1' in item:
+                    lines.append(f"  阈值1: {item['threshold1']}")
+                if 'threshold2' in item:
+                    lines.append(f"  阈值2: {item['threshold2']}")
+                if 'type' in item:
+                    type_display = "差值计算" if item['type'] == 'difference' else item['type']
+                    lines.append(f"  计算类型: {type_display}")
+                
+                return '\n'.join(lines) if len(lines) > 1 else f"{name}：未设置"
+            
+            config_lines = ["**配置确认**：", ""]
+            if time_base:
+                config_lines.append(format_config_item(time_base, '**时间（基准时刻）**'))
+                config_lines.append("")
+            if startup_time:
+                config_lines.append(format_config_item(startup_time, '**启动时间**'))
+                config_lines.append("")
+            if ignition_time:
+                config_lines.append(format_config_item(ignition_time, '**点火时间**'))
+                config_lines.append("")
+            if rundown_ng:
+                config_lines.append(format_config_item(rundown_ng, '**Ng余转时间**'))
+                config_lines.append("")
+            if rundown_np:
+                config_lines.append(format_config_item(rundown_np, '**Np余转时间**'))
+            config_lines.append("")
+            
+            # 移除最后一个空行
+            if config_lines and config_lines[-1] == "":
+                config_lines.pop()
+            
+            config_lines.append("\n\n请点击上方 **完成配置** 按钮进行报表生成。")
+            
+            return '\n'.join(config_lines)
+        else:
             return f"配置确认：\n\n{params}\n\n请确认是否使用以上配置生成报表？"
-        
-        time_base = params.get('time_base', {})
-        startup_time = params.get('startup_time', {})
-        ignition_time = params.get('ignition_time', {})
-        rundown_ng = params.get('rundown_ng', {})
-        rundown_np = params.get('rundown_np', {})
-        
-        def format_config_item(item: Dict[str, Any], name: str) -> str:
-            """格式化单个配置项"""
-            if not item:
-                return f"{name}：未设置"
-            
-            lines = [f"{name}："]
-            if 'channel' in item:
-                lines.append(f"  通道: {item['channel']}")
-            if 'statistic' in item:
-                lines.append(f"  统计方法: {item['statistic']}")
-            if 'duration' in item:
-                lines.append(f"  持续时长: {item['duration']}秒")
-            if 'logic' in item:
-                lines.append(f"  判断依据: {item['logic']}")
-            if 'threshold' in item:
-                lines.append(f"  阈值: {item['threshold']}")
-            if 'threshold1' in item:
-                lines.append(f"  阈值1: {item['threshold1']}")
-            if 'threshold2' in item:
-                lines.append(f"  阈值2: {item['threshold2']}")
-            if 'type' in item:
-                type_display = "差值计算" if item['type'] == 'difference' else item['type']
-                lines.append(f"  计算类型: {type_display}")
-            
-            return '\n'.join(lines) if len(lines) > 1 else f"{name}：未设置"
-        
-        config_lines = ["**配置确认**：", ""]
-        if time_base:
-            config_lines.append(format_config_item(time_base, '**时间（基准时刻）**'))
-            config_lines.append("")
-        if startup_time:
-            config_lines.append(format_config_item(startup_time, '**启动时间**'))
-            config_lines.append("")
-        if ignition_time:
-            config_lines.append(format_config_item(ignition_time, '**点火时间**'))
-            config_lines.append("")
-        if rundown_ng:
-            config_lines.append(format_config_item(rundown_ng, '**Ng余转时间**'))
-            config_lines.append("")
-        if rundown_np:
-            config_lines.append(format_config_item(rundown_np, '**Np余转时间**'))
-        config_lines.append("")
-        
-        # 移除最后一个空行
-        if config_lines and config_lines[-1] == "":
-            config_lines.pop()
-        
-        config_lines.append("\n\n请点击上方 **完成配置** 按钮进行报表生成。")
-        
-        return '\n'.join(config_lines)
 
     def _get_config_file_path(self, session: Dict[str, Any]) -> tuple[Path, Dict[str, Any]]:
         """获取配置文件的路径和现有配置 - 统一使用config_session.json"""
