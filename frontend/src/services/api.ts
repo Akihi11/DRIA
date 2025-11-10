@@ -197,6 +197,7 @@ class ApiService {
     return response.data
   }
 
+  // Update report config with structured action/value (legacy path)
   async updateReportConfig(sessionId: string, action: string, value?: any): Promise<any> {
     const response: AxiosResponse<any> = await this.client.post(
       '/report_config/update',
@@ -204,6 +205,18 @@ class ApiService {
         session_id: sessionId,
         action: action,
         value: value
+      }
+    )
+    return response.data
+  }
+
+  // Update report config using natural language utterance to trigger LLM parsing
+  async updateReportConfigNL(sessionId: string, utterance: string): Promise<any> {
+    const response: AxiosResponse<any> = await this.client.post(
+      '/report_config/update',
+      {
+        session_id: sessionId,
+        utterance: utterance
       }
     )
     return response.data

@@ -40,6 +40,10 @@ const ChatPage: React.FC = () => {
   const [availableEvalItems, setAvailableEvalItems] = useState<Array<{id: string, name: string}>>([])
   const [selectedEvalItems, setSelectedEvalItems] = useState<string[]>([])
 
+  // 功能计算类评估项ID集合；仅在“完整报表”下允许选择
+  const functionalIds = new Set(['ngRundown', 'npRundown', 'startupTime', 'ignitionTime'])
+  const isFullReport = configMode.reportType === '完整报表'
+
   // Initialize session on component mount
   useEffect(() => {
     const newSessionId = uuidv4()
@@ -215,15 +219,20 @@ const ChatPage: React.FC = () => {
       // 检查是否在配置模式
       if (configMode.isActive && configMode.sessionId) {
         // 配置模式：使用配置对话API
-        const configResponse = await apiService.updateReportConfig(configMode.sessionId, content)
+        // 发送自然语言到后端以触发 LLM 解析与多参数识别
+        const configResponse = await apiService.updateReportConfigNL(configMode.sessionId, content)
         
         if (configResponse) {
           // 若进入“状态评估 - 第1步：选择评估项目”，使用弹窗而不是在聊天中显示文本
           if (configResponse.state === 'status_eval_select_items') {
             const items = configResponse.current_params?.availableItems || []
             setAvailableEvalItems(items)
-            // 默认全选
-            setSelectedEvalItems(items.map((item: { id: string; name: string }) => item.id))
+            // 默认只勾选可选择项（非完整报表下禁用功能项，不默认勾选）
+            setSelectedEvalItems(
+              items
+                .filter((it: { id: string }) => isFullReport || !functionalIds.has(it.id))
+                .map((it: { id: string }) => it.id)
+            )
             setStatusEvalModalVisible(true)
             // 同步配置状态
             setConfigMode(prev => ({
@@ -334,8 +343,59 @@ const ChatPage: React.FC = () => {
       const reportType = action === '稳态参数' ? '稳态分析' : action
       await handleReportTypeClick(reportType)
     } else {
-      // 其他建议按钮，正常发送消息
-      handleSendMessage(action)
+      // 其他建议按钮：若在配置模式，使用结构化动作接口；否则走普通对话
+      if (configMode.isActive && configMode.sessionId) {
+        try {
+          setIsLoading(true)
+          const configResponse = await apiService.updateReportConfig(configMode.sessionId, action)
+
+          if (configResponse?.state === 'status_eval_select_items') {
+            const items = configResponse.current_params?.availableItems || []
+            setAvailableEvalItems(items)
+            setSelectedEvalItems(
+              items
+                .filter((it: { id: string }) => isFullReport || !functionalIds.has(it.id))
+                .map((it: { id: string }) => it.id)
+            )
+            setStatusEvalModalVisible(true)
+            setConfigMode(prev => ({
+              ...prev,
+              isActive: true,
+              currentState: configResponse.state,
+              currentParams: configResponse.current_params
+            }))
+            return
+          }
+
+          const shouldShowActions = configMode.reportType !== '状态评估' || 
+            configResponse.state === 'status_eval_config_item' || 
+            configResponse.state === 'confirmation'
+          const aiMessage: Message = {
+            id: uuidv4(),
+            type: 'ai',
+            content: configResponse.message,
+            timestamp: new Date(),
+            metadata: {
+              suggestedActions: shouldShowActions ? (configResponse.suggested_actions || []) : [],
+              configState: configResponse.state,
+              currentParams: configResponse.current_params
+            }
+          }
+          setMessages(prev => [...prev, aiMessage])
+          setConfigMode(prev => ({
+            ...prev,
+            isActive: true,
+            currentState: configResponse.state,
+            currentParams: configResponse.current_params
+          }))
+        } catch (e) {
+          message.error('操作失败，请重试')
+        } finally {
+          setIsLoading(false)
+        }
+      } else {
+        handleSendMessage(action)
+      }
     }
   }
 
@@ -755,16 +815,15 @@ const ChatPage: React.FC = () => {
           <Button 
             type="link" 
             onClick={() => {
-              // 全选：如果当前已全选，则取消全选；否则全选
-              const allSelected = selectedEvalItems.length === availableEvalItems.length
-              if (allSelected) {
-                setSelectedEvalItems([])
-              } else {
-                setSelectedEvalItems(availableEvalItems.map((item: {id: string, name: string}) => item.id))
-              }
+              // 全选：仅选择可选项（非完整报表下忽略功能项）
+              const selectable = availableEvalItems
+                .filter((item) => isFullReport || !functionalIds.has(item.id))
+                .map((item) => item.id)
+              const allSelected = selectedEvalItems.length === selectable.length
+              setSelectedEvalItems(allSelected ? [] : selectable)
             }}
           >
-            {selectedEvalItems.length === availableEvalItems.length ? '取消全选' : '全选'}
+            {selectedEvalItems.length === availableEvalItems.filter(i => isFullReport || !functionalIds.has(i.id)).length ? '取消全选' : '全选'}
           </Button>
         </div>
         <Checkbox.Group
@@ -773,9 +832,12 @@ const ChatPage: React.FC = () => {
           onChange={(vals) => setSelectedEvalItems(vals as string[])}
         >
           <Space direction="vertical" style={{ width: '100%' }}>
-            {availableEvalItems.map(item => (
-              <Checkbox key={item.id} value={item.id}>{item.name}</Checkbox>
-            ))}
+            {availableEvalItems.map(item => {
+              const disabled = !isFullReport && functionalIds.has(item.id)
+              return (
+                <Checkbox key={item.id} value={item.id} disabled={disabled}>{item.name}</Checkbox>
+              )
+            })}
           </Space>
         </Checkbox.Group>
       </Modal>

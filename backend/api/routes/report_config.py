@@ -3328,6 +3328,11 @@ class ReportConfigManager:
         elif report_type == ReportType.STATUS_EVAL:
             # 评估项目定义
             available_items = [
+                # 功能计算类评估项优先显示在最上面
+                {'id': 'ngRundown', 'name': 'Ng余转时间', 'default_channels': ['Ng', 'ng', 'NG']},
+                {'id': 'npRundown', 'name': 'Np余转时间', 'default_channels': ['Np', 'np', 'NP']},
+                {'id': 'startupTime', 'name': '启动时间', 'default_channels': ['Ng', 'ng', 'NG']},
+                {'id': 'ignitionTime', 'name': '点火时间', 'default_channels': ['Pressure(kPa)', 'Pressure', '压力']},
                 {'id': 'pressureStatus', 'name': '压力传感器状态', 'default_channels': ['Pressure(kPa)', 'Pressure', '压力']},
                 {'id': 'surge', 'name': '喘振', 'default_channels': ['Pressure(kPa)', 'Pressure', '压力']},
                 {'id': 'voltageCurrent', 'name': '起动电压/电流状态', 'default_channels': []}, 
@@ -3501,7 +3506,12 @@ class ReportConfigManager:
                     'voltageCurrent': '判断电机的工作状态情况。',
                     'flow': '判断燃油流量测量状态情况。',
                     'overSpeed': '判断发动机转速是否发生超过规定的车台保护值的异常情况。',
-                    'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。'
+                    'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。',
+                    'ngRundown': '记录每次发动机停车后的Ng余转时间，判断余转时间的变化情况。',
+                    'npRundown': '记录每次发动机停车后的Np余转时间，判断余转时间的变化情况。',
+                    'startupTime': '记录每次发动机起动到规定状态的时间，判断起动时间的变化情况。',
+                    'ignitionTime': '记录每次发动机从起动到点火的时间，判断点火的变化情况。'
+
                 }
                 
                 # 辅助函数：格式化数值，整数显示为整数，小数保留实际小数位数
@@ -3544,7 +3554,7 @@ class ReportConfigManager:
                         # 添加评估内容描述
                         assessment_content = assessment_content_map.get(item_id, '')
                         if assessment_content:
-                            eval_content_lines.append(f"\n评估内容：{assessment_content}")
+                            eval_content_lines.append(f"\n\n评估内容：{assessment_content}")
                         
                         conditions = eval_item.get('conditions', [])
                         if conditions:
@@ -4143,7 +4153,10 @@ class ReportConfigManager:
             params['evaluations'] = evaluations
         
         item_name = current_item['name']
-        channels_text = f"\n\n【可用通道】：{', '.join(available_channels)}\n" if available_channels else ""
+        # 对于功能计算类评估项（Ng余转、Np余转、启动时间、点火时间），不显示【可用通道】
+        functional_ids = {'ngRundown', 'npRundown', 'startupTime', 'ignitionTime'}
+        is_functional_item = current_item_id in functional_ids
+        channels_text = "" if is_functional_item else (f"\n\n【可用通道】：{', '.join(available_channels)}\n" if available_channels else "")
         
         # 评估内容描述映射
         assessment_content_map = {
@@ -4152,7 +4165,11 @@ class ReportConfigManager:
             'voltageCurrent': '判断电机的工作状态情况。',
             'flow': '判断燃油流量测量状态情况。',
             'overSpeed': '判断发动机转速是否发生超过规定的车台保护值的异常情况。',
-            'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。'
+            'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。',
+            'ngRundown': '记录每次发动机停车后的Ng余转时间，判断余转时间的变化情况。',
+            'npRundown': '记录每次发动机停车后的Np余转时间，判断余转时间的变化情况。',
+            'startupTime': '记录每次发动机起动到规定状态的时间，判断起动时间的变化情况。',
+            'ignitionTime': '记录每次发动机从起动到点火的时间，判断点火的变化情况。'
         }
         
         # 获取评估内容描述
@@ -4163,38 +4180,45 @@ class ReportConfigManager:
         conditions_text = ""
         if current_eval.get('conditions'):
             for i, condition in enumerate(current_eval['conditions'], 1):
-                # 检查是否只有通道信息（没有其他条件参数）
-                has_other_params = any(key in condition for key in ['statistic', 'duration', 'logic', 'threshold'])
-                
-                if has_other_params:
-                    # 有条件参数，显示"条件i："
+                if is_functional_item:
+                    # 功能计算类评估项：仅显示判断依据与阈值
                     conditions_text += f"\n条件{i}：\n"
-                else:
-                    # 只有通道信息，不显示"条件i："
-                    conditions_text += "\n"
-                
-                conditions_text += f"- 监控通道: {condition.get('channel', '未设置')}\n"
-                
-                if has_other_params:
-                    statistic = condition.get('statistic', '平均值')
-                    # 如果是喘振评估项且统计方法是差值计算，添加（不可修改）标识
-                    if current_item_id == 'surge' and statistic == '差值计算':
-                        statistic += '（不可修改）'
-                    conditions_text += f"- 统计方法: {statistic}\n"
-                    # 如果统计方法是瞬时值，显示特殊提示
-                    if statistic == '瞬时值':
-                        conditions_text += f"- 持续时长: （已选择瞬时值，此时无法输入）\n"
-                    else:
-                        conditions_text += f"- 持续时长: {condition.get('duration', 1)}秒\n"
                     conditions_text += f"- 判断依据: {condition.get('logic', '>')}\n"
                     conditions_text += f"- 阈值: {condition.get('threshold', 100)}\n"
+                else:
+                    # 非功能项按原有完整格式显示
+                    # 检查是否只有通道信息（没有其他条件参数）
+                    has_other_params = any(key in condition for key in ['statistic', 'duration', 'logic', 'threshold'])
+                    
+                    if has_other_params:
+                        # 有条件参数，显示"条件i："
+                        conditions_text += f"\n条件{i}：\n"
+                    else:
+                        # 只有通道信息，不显示"条件i："
+                        conditions_text += "\n"
+                    
+                    conditions_text += f"- 监控通道: {condition.get('channel', '未设置')}\n"
+                    
+                    if has_other_params:
+                        statistic = condition.get('statistic', '平均值')
+                        # 如果是喘振评估项且统计方法是差值计算，添加（不可修改）标识
+                        if current_item_id == 'surge' and statistic == '差值计算':
+                            statistic += '（不可修改）'
+                        conditions_text += f"- 统计方法: {statistic}\n"
+                        # 如果统计方法是瞬时值，显示特殊提示
+                        if statistic == '瞬时值':
+                            conditions_text += f"- 持续时长: （已选择瞬时值，此时无法输入）\n"
+                        else:
+                            conditions_text += f"- 持续时长: {condition.get('duration', 1)}秒\n"
+                        conditions_text += f"- 判断依据: {condition.get('logic', '>')}\n"
+                        conditions_text += f"- 阈值: {condition.get('threshold', 100)}\n"
         
         progress_text = f"（{current_item_index + 1}/{len(selected_items)}）"
         
         return f"""配置评估项参数{progress_text}
 
 【评估项目】：{item_name}{channels_text}
-【评估内容】：{assessment_content_text}{conditions_text}
+\n\n【评估内容】：{assessment_content_text}{conditions_text}
 
 修改完成后点击"下一步"继续配置下一个评估项，或点击"上一步"返回。"""
     
@@ -4382,14 +4406,26 @@ class ReportConfigManager:
                 'logic': '<',
                 'threshold': 18000
             }] if channel else []
+        elif item_id in ['ngRundown', 'npRundown', 'startupTime', 'ignitionTime']:
+            # 功能计算类评估项在状态评估中的默认配置：仅包含统计时长与阈值
+            # 不依赖具体通道与比较逻辑，由功能计算结果判定
+            conditions = [{
+                'statistic': '平均值',
+                'duration': 1,
+                'threshold': 100
+            }]
         else:
             conditions = []
         
-        return {
+        result = {
             'item': item_id,
             'assessmentName': item_name,
             'conditions': conditions
         }
+        # 标记功能计算类评估项为 functional_result 类型，避免走通道判断流程
+        if item_id in ['ngRundown', 'npRundown', 'startupTime', 'ignitionTime']:
+            result['type'] = 'functional_result'
+        return result
     
     def _handle_status_eval_item_modification(
         self, action: str, value: Any, current_eval: Dict[str, Any], 
@@ -4735,7 +4771,11 @@ class ReportConfigManager:
                     'voltageCurrent': '判断电机的工作状态情况。',
                     'flow': '判断燃油流量测量状态情况。',
                     'overSpeed': '判断发动机转速是否发生超过规定的车台保护值的异常情况。',
-                    'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。'
+                    'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。',
+                    'ngRundown': '记录每次发动机停车后的Ng余转时间，判断余转时间的变化情况。',
+                    'npRundown': '记录每次发动机停车后的Np余转时间，判断余转时间的变化情况。',
+                    'startupTime': '记录每次发动机起动到规定状态的时间，判断起动时间的变化情况。',
+                    'ignitionTime': '记录每次发动机从起动到点火的时间，判断点火的变化情况。'
                 }
             
             # 转换evaluations格式（移除type和conditionLogic，因为它们现在是全局的）
@@ -5147,7 +5187,7 @@ def detect_multiple_actions(user_input: str) -> bool:
     user_input = user_input.strip()
     
     # 检测方法1: 包含逗号或顿号分隔符
-    if '，' in user_input or ',' in user_input:
+    if '，' in user_input or ',' in user_input or '、' in user_input:
         return True
     
     # 检测方法2: 统计参数关键词的数量
@@ -5438,6 +5478,106 @@ async def parse_config_intent_with_llm(utterance: str, current_params: dict, cur
 # 全局配置管理器实例
 config_manager = ReportConfigManager()
 
+def _infer_missing_actions_from_utterance(utterance: str, existing_actions: list) -> list:
+    """
+    基于“条件继承”规则，从原始用户话术中补齐LLM可能遗漏的参数（例如：
+    '条件一统计方法最大值 阈值999 条件二的持续时长2s 阈值888 条件一的通道ng'
+    中的'条件一 阈值999' 可能被遗漏）。
+    
+    规则：
+    - 将话术按“条件一/二/三”切分成片段，片段内未显式标注条件的参数，继承该片段的条件
+    - 识别参数：阈值、持续时长、统计方法、（监控）通道
+    - 跳过已在existing_actions中的同类操作，避免重复
+    """
+    try:
+        import re
+        # 归一化：标点、换行、全角空格
+        text = (utterance or '').replace('\n', ' ').replace('\r', ' ')
+        text = text.replace('，', ' ').replace(',', ' ').replace('　', ' ').strip()
+        # 标准化“条件X 的/地/之”等连接词
+        text = re.sub(r'条件([一二三])\s*的', r'条件\1 ', text)
+        text = re.sub(r'条件([123])\s*的', r'条件\1 ', text)
+        # 将阿拉伯数字条件替换为中文，统一下游逻辑
+        text = re.sub(r'条件1\b', '条件一', text)
+        text = re.sub(r'条件2\b', '条件二', text)
+        text = re.sub(r'条件3\b', '条件三', text)
+        
+        # 切分为 [("条件一", "统计方法最大值 阈值999"), ("条件二", "持续时长2s 阈值888"), ("条件一", "通道ng")] 这样的片段
+        parts = re.split(r'(条件[一二三])', text)
+        segments = []
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if re.fullmatch(r'条件[一二三]', token or ''):
+                cond = token
+                seg = parts[i+1] if (i + 1) < len(parts) else ''
+                segments.append((cond, seg.strip()))
+                i += 2
+            else:
+                i += 1
+        
+        # 如果文本最前面没有出现“条件X”，尝试继承最近一次显式条件（无此上下文则忽略）
+        # 这里不做全局默认，以免误判
+        
+        # 已有动作集合用于去重
+        existing_set = set()
+        for a in existing_actions or []:
+            act = (a.get('action', ''), str(a.get('value', '')).strip())
+            existing_set.add(act)
+        
+        def norm_channel(val: str) -> str:
+            v = (val or '').strip()
+            if v.lower() == 'ng':
+                return 'Ng'
+            if v.lower() == 'np':
+                return 'Np'
+            return v
+        
+        supplemental = []
+        for cond, seg in segments:
+            if not seg:
+                continue
+            # 阈值
+            m = re.search(r'阈值\s*([0-9]+)', seg)
+            if m:
+                value = int(m.group(1))
+                action = f"修改{cond}阈值"
+                key = (action, str(value))
+                if key not in existing_set:
+                    supplemental.append({"action": action, "value": value})
+                    existing_set.add(key)
+            # 持续时长（允许“2s/2秒/时长2”）
+            m = re.search(r'(?:持续时长|时长)\s*([0-9]+)', seg)
+            if m:
+                value = int(m.group(1))
+                action = f"修改{cond}持续时长"
+                key = (action, str(value))
+                if key not in existing_set:
+                    supplemental.append({"action": action, "value": value})
+                    existing_set.add(key)
+            # 统计方法（匹配常见关键词）
+            m = re.search(r'(?:统计方法|方法)(?:为|改为)?\s*(最大值|最小值|平均值|瞬时值|变化率)', seg)
+            if m:
+                value = m.group(1)
+                action = f"修改{cond}统计方法"
+                key = (action, value)
+                if key not in existing_set:
+                    supplemental.append({"action": action, "value": value})
+                    existing_set.add(key)
+            # 监控通道/通道
+            m = re.search(r'(?:监控通道|通道)\s*([A-Za-z]+)', seg)
+            if m:
+                value = norm_channel(m.group(1))
+                action = f"修改{cond}监控通道"
+                key = (action, value)
+                if key not in existing_set:
+                    supplemental.append({"action": action, "value": value})
+                    existing_set.add(key)
+        
+        return supplemental
+    except Exception:
+        return []
+
 @router.post("/report_config/start", response_model=ConfigResponse, summary="开始报表配置")
 async def start_report_config(request: ConfigStartRequest):
     """
@@ -5490,7 +5630,18 @@ async def update_report_config(request: ConfigUpdateRequest):
                 elif combination == 'Cond2_Only':
                     current_context['current_condition'] = '条件二'
             
-            intent = await parse_config_intent_with_llm(request.utterance, params, current_context)
+            # 根据用户输入智能检测是否可能包含多个参数，并提示LLM返回actions数组
+            try:
+                should_force_multi = detect_multiple_actions(request.utterance)
+            except Exception:
+                should_force_multi = False
+            
+            intent = await parse_config_intent_with_llm(
+                request.utterance,
+                params,
+                current_context,
+                force_multiple_actions=should_force_multi
+            )
             
             # 检查是否有错误信息
             if "error_message" in intent:
@@ -5501,6 +5652,11 @@ async def update_report_config(request: ConfigUpdateRequest):
             if "actions" in intent and isinstance(intent["actions"], list) and len(intent["actions"]) > 0:
                 # 多个参数更新：循环处理每个操作
                 parsed_by_llm = True
+                # 基于原始话术补齐可能遗漏的动作（条件继承场景）
+                supplemental = _infer_missing_actions_from_utterance(request.utterance, intent["actions"])
+                if supplemental:
+                    intent["actions"].extend(supplemental)
+                    logger.info(f"[LLM解析成功-多参数] 发现补充动作 {len(supplemental)} 个: {supplemental}")
                 logger.info(f"[LLM解析成功-多参数] utterance: {request.utterance}, actions数量: {len(intent['actions'])}")
                 response = None
                 success_count = 0
@@ -5541,6 +5697,17 @@ async def update_report_config(request: ConfigUpdateRequest):
                                     # 规范化空格：将"为 "改为"为"（监控通道消息格式问题）
                                     detail = re.sub(r'为\s+', '为', detail)
                                     logger.info(f"[提取修改信息-处理后的detail {i+1}] {detail}")
+                                    # 若未包含条件标识，则使用本次修改上下文补全“条件一/条件二”
+                                    if ('条件一' not in detail) and ('条件二' not in detail):
+                                        try:
+                                            last_cond = session.get('last_modified_condition')
+                                            if last_cond in ('条件一', '条件二') and detail.startswith('已更改'):
+                                                rest = detail[len('已更改'):].lstrip('：:').strip()
+                                                if rest:
+                                                    detail = f"已更改{last_cond}的{rest}"
+                                                    logger.info(f"[提取修改信息-补全条件 {i+1}] {detail}")
+                                        except Exception:
+                                            pass
                                     # 确保detail是有效的修改消息
                                     if detail and '已更改' in detail and '为' in detail:
                                         if detail not in success_details:
@@ -5583,8 +5750,14 @@ async def update_report_config(request: ConfigUpdateRequest):
                             else:
                                 logger.warning(f"[提取修改信息-消息为空 {i+1}] single_response.message 为空")
                             
-                            if single_response.state != ConfigState.PARAMETER_CONFIG:
-                                # 如果状态改变（如确认配置），停止处理后续操作
+                            # 仅在进入终止/中断态时停止循环；配置态应继续处理余下动作
+                            interrupt_states = {
+                                ConfigState.CONFIRMATION,
+                                ConfigState.GENERATING,
+                                ConfigState.STATUS_EVAL_SELECT_ITEMS,
+                                ConfigState.COMPLETED,
+                            }
+                            if single_response.state in interrupt_states:
                                 break
                         except Exception as e:
                             logger.warning(f"[多参数更新失败] action: {action}, value: {value}, 错误: {e}")
@@ -5620,25 +5793,10 @@ async def update_report_config(request: ConfigUpdateRequest):
                                     condition_name = cond
                                     # 去掉条件名前缀，提取实际的修改内容
                                     param_part = change_part[len(cond):].lstrip('的').strip()
-                                    
-                                    # 检查是否只有通道修改（没有其他条件参数）
-                                    # 如果只有"监控通道为X"或"通道为X"，且没有其他参数，则不显示条件前缀
-                                    is_channel_only = False
-                                    if param_part.startswith('监控通道为') or param_part.startswith('通道为'):
-                                        # 检查是否只包含通道信息，不包含其他参数（阈值、统计方法、持续时长、判断依据等）
-                                        other_keywords = ['阈值为', '统计方法为', '持续时长为', '判断依据为', '阈值为', '统计方法', '持续时长', '判断依据']
-                                        has_other_params = any(keyword in param_part for keyword in other_keywords)
-                                        if not has_other_params:
-                                            is_channel_only = True
-                                    
-                                    if is_channel_only:
-                                        # 只有通道修改，不显示条件前缀，直接添加到other_changes
-                                        other_changes.append(param_part)
-                                    else:
-                                        # 有条件参数修改，按条件分组
-                                        if condition_name not in condition_groups:
-                                            condition_groups[condition_name] = []
-                                        condition_groups[condition_name].append(param_part)
+                                    # 无论是否只有通道修改，均按条件分组，避免通道被错误归入“其他修改”
+                                    if condition_name not in condition_groups:
+                                        condition_groups[condition_name] = []
+                                    condition_groups[condition_name].append(param_part)
                                     break
                             
                             if not condition_name:
