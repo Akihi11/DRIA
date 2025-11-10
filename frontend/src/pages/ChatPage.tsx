@@ -40,7 +40,7 @@ const ChatPage: React.FC = () => {
   const [availableEvalItems, setAvailableEvalItems] = useState<Array<{id: string, name: string}>>([])
   const [selectedEvalItems, setSelectedEvalItems] = useState<string[]>([])
 
-  // 功能计算类评估项ID集合；仅在“完整报表”下允许选择
+  // 功能计算类评估项ID集合；这些项目在状态评估里禁选
   const functionalIds = new Set(['ngRundown', 'npRundown', 'startupTime', 'ignitionTime'])
   const isFullReport = configMode.reportType === '完整报表'
 
@@ -227,7 +227,7 @@ const ChatPage: React.FC = () => {
           if (configResponse.state === 'status_eval_select_items') {
             const items = configResponse.current_params?.availableItems || []
             setAvailableEvalItems(items)
-            // 默认只勾选可选择项（非完整报表下禁用功能项，不默认勾选）
+            // 默认只勾选可选择项（完整报表可选功能项，否则禁选且不默认勾选）
             setSelectedEvalItems(
               items
                 .filter((it: { id: string }) => isFullReport || !functionalIds.has(it.id))
@@ -626,8 +626,12 @@ const ChatPage: React.FC = () => {
         // 状态评估弹出选择弹窗，不显示AI消息
         const availableItems = configResponse.current_params?.availableItems || []
         setAvailableEvalItems(availableItems)
-        // 默认全选所有评估项
-        setSelectedEvalItems(availableItems.map((item: {id: string, name: string}) => item.id))
+        // 默认：完整报表可选全部；非完整报表仅选择非功能项
+        setSelectedEvalItems(
+          availableItems
+            .filter((item: {id: string, name: string}) => isFullReport || !functionalIds.has(item.id))
+            .map((item: {id: string, name: string}) => item.id)
+        )
         setStatusEvalModalVisible(true)
       }
 
@@ -815,7 +819,7 @@ const ChatPage: React.FC = () => {
           <Button 
             type="link" 
             onClick={() => {
-              // 全选：仅选择可选项（非完整报表下忽略功能项）
+              // 全选：仅选择可选项（功能项一律禁选）
               const selectable = availableEvalItems
                 .filter((item) => isFullReport || !functionalIds.has(item.id))
                 .map((item) => item.id)
