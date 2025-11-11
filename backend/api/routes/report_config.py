@@ -5459,8 +5459,8 @@ async def parse_config_intent_with_llm(utterance: str, current_params: dict, cur
         config = settings.get_llm_config()
         logger.debug(f"使用LLM提供商: {config.provider}, 模型: {config.model_name}, Base URL: {config.base_url}")
         
-        # 检查配置是否有效
-        if not config.api_key:
+        # 检查配置是否有效（本地提供商不需要API Key）
+        if not config.api_key and str(config.provider).lower() != "local":
             error_msg = f"LLM提供商 {config.provider} 的API密钥未配置"
             logger.error(error_msg)
             return {"error_message": error_msg}
@@ -5470,7 +5470,21 @@ async def parse_config_intent_with_llm(utterance: str, current_params: dict, cur
                 Message(role="system", content="你是报表参数助手，请理解用户自然语言需求，转成可自动调用后端配置指令结构。你返回的JSON必须严格符合格式要求。"),
                 Message(role="user", content=prompt),
             ]
-            resp = await client.chat_completion(messages)
+            # 配置模式解析：降低温度与生成长度以加快响应
+            # 记录提示词长度与耗时，便于定位“提示词过大”还是“模型慢”
+            import time as _time
+            _prompt_len = len(prompt or "")
+            _rough_tokens = max(1, int(_prompt_len / 4))  # 粗略估算：英文约4字符/词元，中文因模型不同差异较大
+            logger.info(f"[IntentParse] prompt_len={_prompt_len} chars, approx_tokens={_rough_tokens}, provider={config.provider}, model={config.model_name}")
+            _t0 = _time.perf_counter()
+            resp = await client.chat_completion(
+                messages,
+                temperature=0.2,
+                max_tokens=min(getattr(config, "max_tokens", 2048), 512),
+                stream=False
+            )
+            _elapsed = _time.perf_counter() - _t0
+            logger.info(f"[IntentParse] latency={_elapsed:.2f}s, provider={config.provider}, model={config.model_name}, base_url={config.base_url}")
             content = resp.get_content().strip().replace('，', ',')
             
             # 尝试提取JSON（可能被markdown代码块包裹）

@@ -32,7 +32,17 @@ class Settings:
         self.LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
         
         # Default LLM Provider Configuration
-        self.DEFAULT_LLM_PROVIDER: str = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek")
+        self.DEFAULT_LLM_PROVIDER: str = os.getenv("DEFAULT_LLM_PROVIDER", "").lower()
+        # 若未显式指定，则根据实际可用供应商自动选择（优先本地）
+        if not self.DEFAULT_LLM_PROVIDER:
+            providers = self.get_available_providers()
+            if "local" in providers:
+                self.DEFAULT_LLM_PROVIDER = "local"
+            elif providers:
+                self.DEFAULT_LLM_PROVIDER = providers[0]
+            else:
+                # 理论上不会发生（本地有默认 BASE_URL），兜底为 local
+                self.DEFAULT_LLM_PROVIDER = "local"
         
         # DeepSeek API Configuration
         self.DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
@@ -101,7 +111,8 @@ class Settings:
             providers.append("qwen")
         if self.KIMI_API_KEY and self.KIMI_API_KEY != "your_kimi_api_key_here":
             providers.append("kimi")
-        if self.LOCAL_BASE_URL and self.LOCAL_BASE_URL != "http://localhost:11434":
+        # 本地提供商：只要配置了 BASE_URL 即认为可用（默认端口也算）
+        if self.LOCAL_BASE_URL:
             providers.append("local")
             
         return providers
@@ -199,15 +210,17 @@ class Settings:
                 base_url=self.LOCAL_BASE_URL,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                timeout=30.0
+                timeout=60.0,
+                # max_retries=2,
+                # request_delay=0.0
             )
         else:
-            # 默认使用DeepSeek
+            # 兜底使用本地提供商
             return LLMConfig(
-                provider=ModelProvider.DEEPSEEK,
-                model_name=self.DEEPSEEK_MODEL,
-                api_key=self.DEEPSEEK_API_KEY,
-                base_url=self.DEEPSEEK_BASE_URL,
+                provider=ModelProvider.LOCAL,
+                model_name=self.LOCAL_MODEL,
+                api_key=self.LOCAL_API_KEY,
+                base_url=self.LOCAL_BASE_URL,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 timeout=30.0

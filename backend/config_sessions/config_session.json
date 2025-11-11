@@ -1,101 +1,101 @@
 {
-  "sourceFileId": "Simulated_Data.csv",
-  "fileId": "214ac0e5-e3a4-4838-833d-d9f68c7955ff",
+  "sourceFileId": "Simulated_Data2.csv",
+  "fileId": "23f33b67-8fdb-407a-a031-8bd85392e87f",
   "configFileName": "config_session.json",
-  "uploadTime": "2025-11-11T16:56:56.367084",
+  "uploadTime": "2025-11-11T20:04:13.316679",
   "channels": [
     {
       "channel_name": "系统电流",
       "statistics": {
-        "count": 12000,
-        "mean": 8.020155850541938,
-        "max_value": 15.96090681173542,
-        "min_value": -1.323071743907667,
-        "std_dev": 2.0010499670674418,
-        "range": 17.28397855564309,
-        "median": 8.02610168979605,
-        "q25": 6.679373453378757,
-        "q75": 9.360456980596101,
-        "variance": 4.0042009707006105
+        "count": 6001,
+        "mean": 7.996237637927345,
+        "max_value": 15.96090681,
+        "min_value": -1.323071744,
+        "std_dev": 2.005370651886753,
+        "range": 17.283978554,
+        "median": 7.994425393,
+        "q25": 6.636112728,
+        "q75": 9.350934077,
+        "variance": 4.021511451448702
       }
     },
     {
       "channel_name": "系统电压",
       "statistics": {
-        "count": 12000,
-        "mean": 14091.570863453087,
-        "max_value": 16697.599128840593,
-        "min_value": 11985.214864241909,
-        "std_dev": 631.3729240641468,
-        "range": 4712.384264598684,
-        "median": 14040.790521900633,
-        "q25": 13689.297060777191,
-        "q75": 14403.417930095859,
-        "variance": 398631.76924131083
+        "count": 6001,
+        "mean": 14178.308737962008,
+        "max_value": 16697.59913,
+        "min_value": 12239.4782,
+        "std_dev": 724.9367577611905,
+        "range": 4458.120929999999,
+        "median": 14075.38728,
+        "q25": 13720.54215,
+        "q75": 14460.00958,
+        "variance": 525533.302753307
       }
     },
     {
       "channel_name": "滑油压力",
       "statistics": {
-        "count": 12000,
-        "mean": 483.68021681873944,
+        "count": 6001,
+        "mean": 421.4651894392486,
         "max_value": 1000.0,
-        "min_value": 4.478544751291006,
-        "std_dev": 332.61486992237406,
-        "range": 995.521455248709,
-        "median": 514.8098732488326,
-        "q25": 116.04402935290193,
-        "q75": 800.0,
-        "variance": 110632.6516934778
+        "min_value": 4.478544751,
+        "std_dev": 313.21617961063924,
+        "range": 995.521455249,
+        "median": 424.7498332,
+        "q25": 50.0,
+        "q75": 743.4623082,
+        "variance": 98104.37516988422
       }
     },
     {
       "channel_name": "排气温度",
       "statistics": {
-        "count": 12000,
-        "mean": 228.8964516829259,
-        "max_value": 931.8592664095836,
-        "min_value": 122.63091560284904,
-        "std_dev": 141.4426522139551,
-        "range": 809.2283508067345,
-        "median": 200.47695676545425,
-        "q25": 186.7991994648031,
-        "q75": 215.09551067063592,
-        "variance": 20006.02386531786
+        "count": 6001,
+        "mean": 258.2178256265623,
+        "max_value": 931.8592664,
+        "min_value": 123.9781683,
+        "std_dev": 194.64060497272908,
+        "range": 807.8810981,
+        "median": 201.7072333,
+        "q25": 187.3595779,
+        "q75": 217.9616895,
+        "variance": 37884.96510414997
       }
     },
     {
       "channel_name": "Ng",
       "statistics": {
-        "count": 12000,
-        "mean": 1545.8333333333333,
-        "max_value": 2800.0,
+        "count": 6001,
+        "mean": 1458.090318279835,
+        "max_value": 2500.0,
         "min_value": 0.0,
-        "std_dev": 1064.6057506552042,
-        "range": 2800.0,
-        "median": 1761.3075383589057,
-        "q25": 439.9599733155437,
+        "std_dev": 999.4827360684562,
+        "range": 2500.0,
+        "median": 1666.11074,
+        "q25": 415.2768512,
         "q75": 2500.0,
-        "variance": 1133385.404328131
+        "variance": 998965.7396988875
       }
     },
     {
       "channel_name": "Np",
       "statistics": {
-        "count": 12000,
-        "mean": 1545.8333333333333,
-        "max_value": 2800.0,
+        "count": 6001,
+        "mean": 1458.090318279835,
+        "max_value": 2500.0,
         "min_value": 0.0,
-        "std_dev": 1064.6057506552042,
-        "range": 2800.0,
-        "median": 1761.3075383589057,
-        "q25": 439.9599733155437,
+        "std_dev": 999.4827360684562,
+        "range": 2500.0,
+        "median": 1666.11074,
+        "q25": 415.2768512,
         "q75": 2500.0,
-        "variance": 1133385.404328131
+        "variance": 998965.7396988875
       }
     }
   ],
-    "availableChannels": [
+  "availableChannels": [
     "系统电流",
     "系统电压",
     "滑油压力",
@@ -117,230 +117,22 @@
       "conditions": [
         {
           "type": "statistic",
-          "channel": "Np",
-          "statistic": "最大值",
-          "duration": 1,
+          "channel": "系统电流",
+          "statistic": "平均值",
+          "duration": 5,
           "logic": ">",
-          "threshold": 2000
-        },
-        {
-          "type": "amplitude_change",
-          "channel": "排气温度",
-          "duration": 1,
-          "logic": ">",
-          "threshold": 200
+          "threshold": 100
         }
       ],
-      "conditionLogic": "AND"
-    },
-    "functionalCalc": {
-      "time_base": {
-        "channel": "Ng",
-        "statistic": "平均值",
-        "duration": 1,
-        "logic": ">",
-        "threshold": 2000
-      },
-      "startup_time": {
-        "channel": "Ng",
-        "statistic": "最大值",
-        "duration": 1,
-        "logic": ">",
-        "threshold": 100
-      },
-      "ignition_time": {
-        "channel": "滑油压力",
-        "type": "difference",
-        "duration": 15,
-        "logic": ">",
-        "threshold": 300
-      },
-      "rundown_ng": {
-        "channel": "Ng",
-        "statistic": "平均值",
-        "duration": 1,
-        "threshold1": 2600,
-        "threshold2": 1000
-      },
-      "rundown_np": {
-        "channel": "Np",
-        "statistic": "平均值",
-        "duration": 1,
-        "threshold1": 2400,
-        "threshold2": 800
-      }
-    },
-    "statusEval": {
-      "type": "continuous_check",
-      "conditionLogic": "AND",
-      "assessment_content_map": {
-        "ngRundown": "记录每次发动机停车后的Ng余转时间，判断余转时间的变化情况。",
-        "npRundown": "记录每次发动机停车后的Np余转时间，判断余转时间的变化情况。",
-        "startupTime": "记录每次发动机起动到规定状态的时间，判断起动时间的变化情况。",
-        "ignitionTime": "记录每次发动机从起动到点火的时间，判断点火的变化情况。",
-        "pressureStatus": "检查并判断传感器的工作状态情况。",
-        "surge": "检查整个实验过程是否发生喘振。",
-        "voltageCurrent": "判断电机的工作状态情况。",
-        "flow": "判断燃油流量测量状态情况。",
-        "overSpeed": "判断发动机转速是否发生超过规定的车台保护值的异常情况。",
-        "overTemp": "判断发动机排气温度是否发生超过规定的车台保护值的异常情况。"
-      },
-      "evaluations": [
-        {
-          "item": "ngRundown",
-          "assessmentName": "Ng余转时间",
-          "conditions": [
-            {
-              "logic": ">",
-              "threshold": 10
-            }
-          ]
-        },
-        {
-          "item": "npRundown",
-          "assessmentName": "Np余转时间",
-          "conditions": [
-            {
-              "logic": "<",
-              "threshold": 9
-            }
-          ]
-        },
-        {
-          "item": "startupTime",
-          "assessmentName": "启动时间",
-          "conditions": [
-            {
-              "logic": ">",
-              "threshold": 10
-            }
-          ]
-        },
-        {
-          "item": "ignitionTime",
-          "assessmentName": "点火时间",
-          "conditions": [
-            {
-              "logic": "<",
-              "threshold": 0
-            }
-          ]
-        },
-        {
-          "item": "pressureStatus",
-          "assessmentName": "压力传感器状态",
-          "conditions": [
-            {
-              "channel": "滑油压力",
-              "statistic": "平均值",
-              "duration": 1,
-              "logic": "<", 
-              "threshold": 950 
-            },
-            {
-              "channel": "系统电流",
-              "statistic": "平均值",
-              "duration": 1,
-              "logic": "<",
-              "threshold": 10 
-            }
-          ]
-        },
-        {
-          "item": "surge",
-          "assessmentName": "喘振",
-          "conditions": [
-            {
-              "channel": "滑油压力",
-              "statistic": "差值计算",
-              "duration": 10,
-              "logic": "<", 
-              "threshold": 800 
-            }
-          ]
-        },
-        {
-          "item": "voltageCurrent",
-          "assessmentName": "起动电压/电流状态",
-          "conditions": [
-            {
-              "channel": "系统电流",
-              "statistic": "平均值",
-              "duration": 1.0,
-              "logic": "<",
-              "threshold": 20.0 
-            },
-            {
-              "channel": "系统电压",
-              "statistic": "平均值",
-              "duration": 1.0,
-              "logic": "<",
-              "threshold": 16000.0 
-            },
-            {
-              "channel": "滑油压力",
-              "statistic": "平均值",
-              "duration": 1.0,
-              "logic": "<",
-              "threshold": 950.0
-            }
-          ]
-        },
-        {
-          "item": "flow",
-          "assessmentName": "流量测量状态",
-          "conditions": [
-            {
-              "channel": "系统电流",
-              "statistic": "平均值",
-              "duration": 1.0,
-              "logic": "<",
-              "threshold": 20.0
-            },
-            {
-              "channel": "系统电压",
-              "statistic": "平均值",
-              "duration": 1.0,
-              "logic": "<",
-              "threshold": 17000.0 
-            }
-          ]
-        },
-        {
-          "item": "overSpeed",
-          "assessmentName": "超转保护",
-          "conditions": [
-            {
-              "channel": "Ng",
-              "statistic": "瞬时值",
-              "duration": null,
-              "logic": "<", 
-              "threshold": 18000
-            }
-          ]
-        },
-        {
-          "item": "overTemp",
-          "assessmentName": "超温保护",
-          "conditions": [
-            {
-              "channel": "排气温度",
-              "statistic": "瞬时值",
-              "duration": null,
-              "logic": "<", 
-              "threshold": 850
-            }
-          ]
-        }
-      ]
+      "conditionLogic": "Cond1_Only"
     }
   },
-  "reportType": "完整报表",
+  "reportType": "稳态分析",
   "history": [
     {
-      "timestamp": "2025-11-11T16:56:58.129043",
+      "timestamp": "2025-11-11T20:04:15.370249",
       "action": "set_report_type",
-      "value": "完整报表"
+      "value": "稳态分析"
     }
   ]
 }

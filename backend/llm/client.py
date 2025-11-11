@@ -83,6 +83,9 @@ class LLMClient:
             return "/api/v1/services/aigc/text-generation/generation"
         elif self.config.provider == ModelProvider.KIMI:
             return "/v1/chat/completions"
+        elif self.config.provider == ModelProvider.LOCAL:
+            # Ollama chat API
+            return "/api/chat"
         else:
             return "/chat/completions"
     
@@ -136,6 +139,30 @@ class LLMClient:
                 base_data["parameters"]["stop"] = kwargs["stop"]
                 
             return base_data
+        
+        # LOCAL (Ollama) 使用 /api/chat，参数位于顶层与 options 中
+        if self.config.provider == ModelProvider.LOCAL:
+            ollama_messages = [{"role": m.role, "content": m.content} for m in messages]
+            ollama_data: Dict[str, Any] = {
+                "model": kwargs.get("model", self.config.model_name),
+                "messages": ollama_messages,
+                "stream": kwargs.get("stream", self.config.stream),
+                "options": {
+                    "temperature": kwargs.get("temperature", self.config.temperature),
+                    # Ollama 用 num_predict 控制最大生成长度
+                    "num_predict": kwargs.get("max_tokens", self.config.max_tokens),
+                }
+            }
+            # 追加可选采样参数
+            if "top_p" in kwargs:
+                ollama_data["options"]["top_p"] = kwargs["top_p"]
+            if "presence_penalty" in kwargs:
+                ollama_data["options"]["presence_penalty"] = kwargs["presence_penalty"]
+            if "frequency_penalty" in kwargs:
+                ollama_data["options"]["frequency_penalty"] = kwargs["frequency_penalty"]
+            if "stop" in kwargs:
+                ollama_data["options"]["stop"] = kwargs["stop"]
+            return ollama_data
         
         # 其他提供商使用标准格式
         base_data = {
@@ -203,6 +230,29 @@ class LLMClient:
                             "usage": response_data.get("usage", {})
                         }
                         return ChatResponse(**standard_response)
+                
+                # LOCAL (Ollama) 使用非OpenAI格式，解析为标准响应
+                if self.config.provider == ModelProvider.LOCAL:
+                    # 典型响应：
+                    # {"model":"...","created_at":"...","message":{"role":"assistant","content":"..."}, ...}
+                    message = response_data.get("message") or {}
+                    content = message.get("content", "")
+                    standard_response = {
+                        "id": response_data.get("id", "ollama-response"),
+                        "object": "chat.completion",
+                        "created": int(time.time()),
+                        "model": self.config.model_name,
+                        "choices": [{
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": content
+                            },
+                            "finish_reason": "stop"
+                        }],
+                        "usage": response_data.get("usage", {})
+                    }
+                    return ChatResponse(**standard_response)
                 
                 return ChatResponse(**response_data)
                 

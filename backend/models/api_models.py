@@ -24,7 +24,8 @@ class DialogueRequest(BaseModel):
     session_id: str = Field(..., description="会话ID")
     user_input: str = Field(..., description="用户输入")
     dialogue_state: DialogueState = Field(..., description="当前对话状态")
-    provider: Optional[str] = Field("deepseek", description="大模型提供商 (deepseek/openai/anthropic/google/azure/local)")
+    # 不给默认值，若未指定则由服务端按 settings.DEFAULT_LLM_PROVIDER 决定
+    provider: Optional[str] = Field(None, description="大模型提供商 (deepseek/openai/anthropic/google/azure/qwen/kimi/local)")
 
 
 class DialogueResponse(BaseModel):
