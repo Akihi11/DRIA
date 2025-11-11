@@ -50,14 +50,25 @@ class CombinedReportService:
         logger.info("开始生成三类报表（独立xlsx）...")
         # 稳态
         self.steady_service.generate_report(steady_config_path, input_file_path, str(steady_tmp))
-        # 功能计算（优先使用简单接口）
+        # 功能计算（获取计算结果）
+        functional_results = None
         try:
-            self.functional_service.generate_report_simple(functional_config_path, input_file_path, str(functional_tmp))
-        except Exception:
-            # 回退到完整接口
-            self.functional_service.generate_report(functional_config_path, input_file_path, str(functional_tmp))
-        # 状态评估
-        self.status_eval_service.generate_report(status_eval_config_path, input_file_path, str(status_eval_tmp))
+            result = self.functional_service.generate_report(functional_config_path, input_file_path, str(functional_tmp))
+            # 如果返回的是字典，提取calculator
+            if isinstance(result, dict):
+                calculator = result.get('calculator')
+                if calculator and hasattr(calculator, 'results'):
+                    functional_results = calculator.results
+                    logger.info(f"获取到功能计算结果，共{len(functional_results)}条记录")
+        except Exception as e:
+            logger.warning(f"功能计算生成失败或无法获取结果: {e}")
+            # 回退到简单接口
+            try:
+                self.functional_service.generate_report_simple(functional_config_path, input_file_path, str(functional_tmp))
+            except Exception:
+                pass
+        # 状态评估（传递功能计算结果）
+        self.status_eval_service.generate_report(status_eval_config_path, input_file_path, str(status_eval_tmp), functional_results)
 
         logger.info("三类报表生成完成，开始合并为单一xlsx（单sheet，纵向拼接）...")
         # 创建目标工作簿（单个sheet）

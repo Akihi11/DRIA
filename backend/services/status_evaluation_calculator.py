@@ -65,8 +65,9 @@ class StatusEvaluationCalculator:
         """初始化结果字典和滑动窗口"""
         # 1. 初始化所有评估项的结论为"是"（通过）
         for eval_item in self.config.evaluations:
-            # 跳过functional_result类型（这次不实现）
+            # functional_result类型不需要初始化滑动窗口，但需要初始化结果
             if eval_item.type == "functional_result":
+                self.results[eval_item.item] = "是"  # 默认值，后续会被_process_functional_results覆盖
                 continue
             
             self.results[eval_item.item] = "是"
@@ -223,7 +224,7 @@ class StatusEvaluationCalculator:
             
             # 2. 遍历配置中的所有评估项（保持顺序）
             for eval_item in self.config.evaluations:
-                # 跳过functional_result类型
+                # functional_result类型不需要实时计算，跳过
                 if eval_item.type == "functional_result":
                     continue
                 

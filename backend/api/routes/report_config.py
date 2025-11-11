@@ -2353,8 +2353,10 @@ class ReportConfigManager:
                             status_eval = report_config.get('statusEval', {})
                             evaluations_from_file = status_eval.get('evaluations', [])
                             if evaluations_from_file:
-                                params['evaluations'] = evaluations_from_file
-                                logger.info(f"[进入确认状态] 从配置文件读取到 {len(evaluations_from_file)} 个评估项")
+                                # 清理功能计算类评估项中不需要的字段
+                                cleaned_evaluations = self._clean_functional_item_conditions(evaluations_from_file)
+                                params['evaluations'] = cleaned_evaluations
+                                logger.info(f"[进入确认状态] 从配置文件读取到 {len(cleaned_evaluations)} 个评估项")
                     except Exception as e:
                         logger.warning(f"从配置文件读取评估项失败: {e}")
                 
@@ -2443,8 +2445,10 @@ class ReportConfigManager:
                             status_eval = report_config.get('statusEval', {})
                             evaluations_from_file = status_eval.get('evaluations', [])
                             if evaluations_from_file:
-                                params['evaluations'] = evaluations_from_file
-                                logger.info(f"[确认配置操作-状态评估] 从配置文件读取到 {len(evaluations_from_file)} 个评估项")
+                                # 清理功能计算类评估项中不需要的字段
+                                cleaned_evaluations = self._clean_functional_item_conditions(evaluations_from_file)
+                                params['evaluations'] = cleaned_evaluations
+                                logger.info(f"[确认配置操作-状态评估] 从配置文件读取到 {len(cleaned_evaluations)} 个评估项")
                             else:
                                 # 如果配置文件中没有，使用params中的evaluations（可能为空，但至少不会丢失）
                                 logger.warning(f"[确认配置操作-状态评估] 配置文件中没有evaluations，使用params中的evaluations")
@@ -2590,8 +2594,10 @@ class ReportConfigManager:
                             status_eval = report_config.get('statusEval', {})
                             evaluations_from_file = status_eval.get('evaluations', [])
                             if evaluations_from_file:
-                                params['evaluations'] = evaluations_from_file
-                                logger.info(f"[确认状态] 从配置文件读取到 {len(evaluations_from_file)} 个评估项")
+                                # 清理功能计算类评估项中不需要的字段
+                                cleaned_evaluations = self._clean_functional_item_conditions(evaluations_from_file)
+                                params['evaluations'] = cleaned_evaluations
+                                logger.info(f"[确认状态] 从配置文件读取到 {len(cleaned_evaluations)} 个评估项")
                             else:
                                 # 如果配置文件中没有，确保params中有evaluations（即使为空）
                                 if 'evaluations' not in params:
@@ -3501,16 +3507,16 @@ class ReportConfigManager:
                 
                 # 评估内容描述映射
                 assessment_content_map = {
+                    'ngRundown': '记录每次发动机停车后的Ng余转时间，判断余转时间的变化情况。',
+                    'npRundown': '记录每次发动机停车后的Np余转时间，判断余转时间的变化情况。',
+                    'startupTime': '记录每次发动机起动到规定状态的时间，判断起动时间的变化情况。',
+                    'ignitionTime': '记录每次发动机从起动到点火的时间，判断点火的变化情况。',
                     'pressureStatus': '检查并判断传感器的工作状态情况。',
                     'surge': '检查整个实验过程是否发生喘振。',
                     'voltageCurrent': '判断电机的工作状态情况。',
                     'flow': '判断燃油流量测量状态情况。',
                     'overSpeed': '判断发动机转速是否发生超过规定的车台保护值的异常情况。',
-                    'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。',
-                    'ngRundown': '记录每次发动机停车后的Ng余转时间，判断余转时间的变化情况。',
-                    'npRundown': '记录每次发动机停车后的Np余转时间，判断余转时间的变化情况。',
-                    'startupTime': '记录每次发动机起动到规定状态的时间，判断起动时间的变化情况。',
-                    'ignitionTime': '记录每次发动机从起动到点火的时间，判断点火的变化情况。'
+                    'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。'
 
                 }
                 
@@ -3810,6 +3816,42 @@ class ReportConfigManager:
         else:
             return f"配置确认：\n\n{params}\n\n请确认是否使用以上配置生成报表？"
 
+    def _clean_functional_item_conditions(self, evaluations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """清理功能计算类评估项中不需要的字段（channel、statistic、duration）"""
+        functional_result_items = {'ngRundown', 'npRundown', 'startupTime', 'ignitionTime'}
+        cleaned_evaluations = []
+        
+        for eval_item in evaluations:
+            item_id = eval_item.get('item', '')
+            is_functional_item = item_id in functional_result_items
+            
+            cleaned_eval = {
+                'item': item_id,
+                'assessmentName': eval_item.get('assessmentName'),
+                'conditions': []
+            }
+            
+            # 如果有type字段，保留它
+            if 'type' in eval_item:
+                cleaned_eval['type'] = eval_item['type']
+            
+            # 清理conditions
+            for condition in eval_item.get('conditions', []):
+                if is_functional_item:
+                    # 功能计算类评估项：只保留logic和threshold
+                    cleaned_condition = {
+                        'logic': condition.get('logic', '>'),
+                        'threshold': condition.get('threshold', 100)
+                    }
+                else:
+                    # 普通评估项：保留所有字段
+                    cleaned_condition = condition.copy()
+                cleaned_eval['conditions'].append(cleaned_condition)
+            
+            cleaned_evaluations.append(cleaned_eval)
+        
+        return cleaned_evaluations
+    
     def _get_config_file_path(self, session: Dict[str, Any]) -> tuple[Path, Dict[str, Any]]:
         """获取配置文件的路径和现有配置 - 统一使用config_session.json"""
         backend_dir = Path(__file__).resolve().parent.parent.parent  # backend 目录
@@ -4160,16 +4202,16 @@ class ReportConfigManager:
         
         # 评估内容描述映射
         assessment_content_map = {
+            'ngRundown': '记录每次发动机停车后的Ng余转时间，判断余转时间的变化情况。',
+            'npRundown': '记录每次发动机停车后的Np余转时间，判断余转时间的变化情况。',
+            'startupTime': '记录每次发动机起动到规定状态的时间，判断起动时间的变化情况。',
+            'ignitionTime': '记录每次发动机从起动到点火的时间，判断点火的变化情况。',
             'pressureStatus': '检查并判断传感器的工作状态情况。',
             'surge': '检查整个实验过程是否发生喘振。',
             'voltageCurrent': '判断电机的工作状态情况。',
             'flow': '判断燃油流量测量状态情况。',
             'overSpeed': '判断发动机转速是否发生超过规定的车台保护值的异常情况。',
-            'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。',
-            'ngRundown': '记录每次发动机停车后的Ng余转时间，判断余转时间的变化情况。',
-            'npRundown': '记录每次发动机停车后的Np余转时间，判断余转时间的变化情况。',
-            'startupTime': '记录每次发动机起动到规定状态的时间，判断起动时间的变化情况。',
-            'ignitionTime': '记录每次发动机从起动到点火的时间，判断点火的变化情况。'
+            'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。'
         }
         
         # 获取评估内容描述
@@ -4407,11 +4449,10 @@ class ReportConfigManager:
                 'threshold': 18000
             }] if channel else []
         elif item_id in ['ngRundown', 'npRundown', 'startupTime', 'ignitionTime']:
-            # 功能计算类评估项在状态评估中的默认配置：仅包含统计时长与阈值
-            # 不依赖具体通道与比较逻辑，由功能计算结果判定
+            # 功能计算类评估项在状态评估中的默认配置：仅包含逻辑和阈值
+            # 不依赖具体通道、统计方法和持续时长，由功能计算结果判定
             conditions = [{
-                'statistic': '平均值',
-                'duration': 1,
+                'logic': '>',
                 'threshold': 100
             }]
         else:
@@ -4499,8 +4540,22 @@ class ReportConfigManager:
             if condition_index is not None and condition_index < len(conditions):
                 condition = conditions[condition_index]
                 
+                # 检查是否为功能计算类评估项（只允许修改logic和threshold）
+                item_id = current_item.get('id', '') if current_item else ''
+                is_functional_item = item_id in ['ngRundown', 'npRundown', 'startupTime', 'ignitionTime']
+                
                 # 处理通道修改
                 if '通道' in action_part or 'channel' in action_part.lower():
+                    # 功能计算类评估项不允许修改通道
+                    if is_functional_item:
+                        changes.append({
+                            'param': '监控通道',
+                            'value': '（功能计算类评估项不需要通道）',
+                            'condition': condition_name,
+                            'error': True,
+                            'message': '功能计算类评估项（Ng余转时间、Np余转时间、启动时间、点火时间）不需要设置通道，它们从功能计算汇总表中读取数据。'
+                        })
+                        continue
                     # 从当前action_part中提取通道值
                     part_value = value
                     if not part_value:
@@ -4525,6 +4580,16 @@ class ReportConfigManager:
                 
                 # 处理统计方法修改
                 if '统计方法' in action_part or '统计' in action_part:
+                    # 功能计算类评估项不允许修改统计方法
+                    if is_functional_item:
+                        changes.append({
+                            'param': '统计方法',
+                            'value': '（功能计算类评估项不需要统计方法）',
+                            'condition': condition_name,
+                            'error': True,
+                            'message': '功能计算类评估项（Ng余转时间、Np余转时间、启动时间、点火时间）不需要设置统计方法，它们从功能计算汇总表中读取已计算好的值。'
+                        })
+                        continue
                     statistic_map = {
                         '平均值': '平均值', '平均': '平均值',
                         '最大值': '最大值', '最大': '最大值',
@@ -4591,6 +4656,16 @@ class ReportConfigManager:
                 
                 # 处理持续时长修改
                 if '持续时长' in action_part or '时长' in action_part or 'duration' in action_part.lower():
+                    # 功能计算类评估项不允许修改持续时长
+                    if is_functional_item:
+                        changes.append({
+                            'param': '持续时长',
+                            'value': '（功能计算类评估项不需要持续时长）',
+                            'condition': condition_name,
+                            'error': True,
+                            'message': '功能计算类评估项（Ng余转时间、Np余转时间、启动时间、点火时间）不需要设置持续时长，它们从功能计算汇总表中读取已计算好的时间值。'
+                        })
+                        continue
                     # 如果统计方法是瞬时值，不允许修改持续时长
                     if condition.get('statistic') == '瞬时值':
                         # 不进行修改，但记录提示信息
@@ -4766,41 +4841,55 @@ class ReportConfigManager:
             # 添加评估内容描述映射（如果不存在则添加默认值）
             if 'assessment_content_map' not in status_eval:
                 status_eval['assessment_content_map'] = {
+                    'ngRundown': '记录每次发动机停车后的Ng余转时间，判断余转时间的变化情况。',
+                    'npRundown': '记录每次发动机停车后的Np余转时间，判断余转时间的变化情况。',
+                    'startupTime': '记录每次发动机起动到规定状态的时间，判断起动时间的变化情况。',
+                    'ignitionTime': '记录每次发动机从起动到点火的时间，判断点火的变化情况。',
                     'pressureStatus': '检查并判断传感器的工作状态情况。',
                     'surge': '检查整个实验过程是否发生喘振。',
                     'voltageCurrent': '判断电机的工作状态情况。',
                     'flow': '判断燃油流量测量状态情况。',
                     'overSpeed': '判断发动机转速是否发生超过规定的车台保护值的异常情况。',
-                    'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。',
-                    'ngRundown': '记录每次发动机停车后的Ng余转时间，判断余转时间的变化情况。',
-                    'npRundown': '记录每次发动机停车后的Np余转时间，判断余转时间的变化情况。',
-                    'startupTime': '记录每次发动机起动到规定状态的时间，判断起动时间的变化情况。',
-                    'ignitionTime': '记录每次发动机从起动到点火的时间，判断点火的变化情况。'
+                    'overTemp': '判断发动机排气温度是否发生超过规定的车台保护值的异常情况。'
                 }
             
             # 转换evaluations格式（移除type和conditionLogic，因为它们现在是全局的）
             status_eval['evaluations'] = []
+            functional_result_items = {'ngRundown', 'npRundown', 'startupTime', 'ignitionTime'}
+            
             for eval_item in evaluations:
+                item_id = eval_item.get('item', '')
                 eval_config = {
-                    'item': eval_item.get('item'),
+                    'item': item_id,
                     'assessmentName': eval_item.get('assessmentName'),
                     'conditions': []
                 }
                 
+                # 检查是否为功能计算类评估项
+                is_functional_item = item_id in functional_result_items
+                
                 # 转换conditions
                 for condition in eval_item.get('conditions', []):
-                    statistic = condition.get('statistic', '平均值')
-                    cond_config = {
-                        'channel': condition.get('channel'),
-                        'statistic': statistic,
-                        'logic': logic_map.get(condition.get('logic', '>'), '>'),
-                        'threshold': condition.get('threshold', 100)
-                    }
-                    # 如果统计方法是瞬时值，duration设为null或不写入
-                    if statistic == '瞬时值':
-                        cond_config['duration'] = None
+                    if is_functional_item:
+                        # 功能计算类评估项：只保存logic和threshold
+                        cond_config = {
+                            'logic': logic_map.get(condition.get('logic', '>'), '>'),
+                            'threshold': condition.get('threshold', 100)
+                        }
                     else:
-                        cond_config['duration'] = condition.get('duration', 1)
+                        # 普通评估项：保存所有字段
+                        statistic = condition.get('statistic', '平均值')
+                        cond_config = {
+                            'channel': condition.get('channel'),
+                            'statistic': statistic,
+                            'logic': logic_map.get(condition.get('logic', '>'), '>'),
+                            'threshold': condition.get('threshold', 100)
+                        }
+                        # 如果统计方法是瞬时值，duration设为null或不写入
+                        if statistic == '瞬时值':
+                            cond_config['duration'] = None
+                        else:
+                            cond_config['duration'] = condition.get('duration', 1)
                     eval_config['conditions'].append(cond_config)
                 
                 status_eval['evaluations'].append(eval_config)

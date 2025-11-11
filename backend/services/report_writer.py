@@ -223,9 +223,9 @@ class ReportWriter:
         # 遍历配置中的评估项（保持顺序）
         row_count = 0
         for eval_item in evaluations:
-            # 跳过functional_result类型
-            if eval_item.type == "functional_result":
-                continue
+            # functional_result类型也需要显示在报表中
+            # if eval_item.type == "functional_result":
+            #     continue
             
             item_id = eval_item.item
             

@@ -345,6 +345,15 @@ const ChatPage: React.FC = () => {
     } else {
       // 其他建议按钮：若在配置模式，使用结构化动作接口；否则走普通对话
       if (configMode.isActive && configMode.sessionId) {
+        // 先添加用户消息，显示点击的操作
+        const userMessage: Message = {
+          id: uuidv4(),
+          type: 'user',
+          content: action,
+          timestamp: new Date()
+        }
+        setMessages(prev => [...prev, userMessage])
+        
         try {
           setIsLoading(true)
           const configResponse = await apiService.updateReportConfig(configMode.sessionId, action)

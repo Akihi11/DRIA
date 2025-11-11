@@ -25,7 +25,7 @@ class StatusEvaluationService:
         self.data_reader = DataReader()
         self.report_writer = ReportWriter()
     
-    def generate_report(self, config_path: str, input_file_path: str, output_file_path: str) -> str:
+    def generate_report(self, config_path: str, input_file_path: str, output_file_path: str, functional_results: List[Dict[str, Any]] = None) -> str:
         """
         生成状态评估报表
         
@@ -33,6 +33,7 @@ class StatusEvaluationService:
             config_path: 配置文件路径
             input_file_path: 输入数据文件路径
             output_file_path: 输出文件完整路径（包含文件名）
+            functional_results: 功能计算汇总表的结果列表，每个元素包含ng_rundown, np_rundown, startup_time, ignition_time等字段
         
         Returns:
             输出文件路径
@@ -56,7 +57,12 @@ class StatusEvaluationService:
             calculator = StatusEvaluationCalculator(config)
             results = calculator.calculate(data_stream)
             
-            # 5. 生成报表
+            # 5. 处理functional_result类型的评估项
+            if functional_results is not None:
+                functional_results_dict = self._process_functional_results(config, functional_results)
+                results.update(functional_results_dict)
+            
+            # 6. 生成报表
             logger.info("生成状态评估报表...")
             output_path = Path(output_file_path)
             # 确保输出目录存在
@@ -99,15 +105,20 @@ class StatusEvaluationService:
         
         # 解析评估项
         evaluations = []
+        # 功能计算类评估项的ID列表
+        functional_result_items = {'ngRundown', 'npRundown', 'startupTime', 'ignitionTime'}
+        
         for eval_config in evaluations_config:
+            item_id = eval_config.get('item', '')
             # 获取评估项的类型和条件逻辑，优先使用评估项中的值，如果没有则使用全局默认值
             eval_type = eval_config.get('type', default_type)
+            # 如果item_id是功能计算类评估项，且没有显式设置type，则设置为functional_result
+            if item_id in functional_result_items and eval_type == default_type:
+                eval_type = 'functional_result'
             condition_logic = eval_config.get('conditionLogic', default_condition_logic)
             
-            # 跳过functional_result类型（这次不实现）
-            if eval_type == 'functional_result':
-                logger.info(f"跳过functional_result类型评估项: {eval_config.get('item', 'unknown')}")
-                continue
+            # functional_result类型需要特殊处理，但不跳过
+            # 它们会从功能计算汇总表中读取数据
             
             # 解析条件
             conditions = []
@@ -122,16 +133,26 @@ class StatusEvaluationService:
                 eval_type = 'continuous_check'
             
             for cond_config in conditions_config:
-                # 兼容event_check格式：使用type字段作为statistic
-                statistic = cond_config.get('statistic') or cond_config.get('type', '平均值')
-                
-                condition = EvaluationCondition(
-                    channel=cond_config.get('channel', ''),
-                    statistic=self._normalize_statistic(statistic),
-                    duration=cond_config.get('duration', 1.0),
-                    logic=cond_config.get('logic', '>'),
-                    threshold=cond_config.get('threshold', 0.0)
-                )
+                # functional_result类型只需要logic和threshold，其他字段忽略
+                if eval_type == 'functional_result':
+                    condition = EvaluationCondition(
+                        channel='',  # functional_result类型不需要通道
+                        statistic='',  # functional_result类型不需要统计方法
+                        duration=0.0,  # functional_result类型不需要持续时长
+                        logic=cond_config.get('logic', '>'),
+                        threshold=cond_config.get('threshold', 0.0)
+                    )
+                else:
+                    # 兼容event_check格式：使用type字段作为statistic
+                    statistic = cond_config.get('statistic') or cond_config.get('type', '平均值')
+                    
+                    condition = EvaluationCondition(
+                        channel=cond_config.get('channel', ''),
+                        statistic=self._normalize_statistic(statistic),
+                        duration=cond_config.get('duration', 1.0),
+                        logic=cond_config.get('logic', '>'),
+                        threshold=cond_config.get('threshold', 0.0)
+                    )
                 conditions.append(condition)
             
             # 构建评估项
@@ -175,9 +196,105 @@ class StatusEvaluationService:
         channels = set()
         
         for eval_item in config.evaluations:
+            # functional_result类型不需要通道数据
+            if eval_item.type == 'functional_result':
+                continue
             for condition in eval_item.conditions:
                 if condition.channel:
                     channels.add(condition.channel)
         
         return list(channels)
+    
+    def _process_functional_results(self, config: StatusEvalConfig, functional_results: List[Dict[str, Any]]) -> Dict[str, str]:
+        """
+        处理functional_result类型的评估项
+        
+        Args:
+            config: 状态评估配置
+            functional_results: 功能计算汇总表的结果列表
+        
+        Returns:
+            评估结果字典 {item_id: "是" 或 "否"}
+        """
+        results = {}
+        
+        # 映射：评估项ID -> 功能计算字段名
+        item_to_field = {
+            'ngRundown': 'ng_rundown',
+            'npRundown': 'np_rundown',
+            'startupTime': 'startup_time',
+            'ignitionTime': 'ignition_time'
+        }
+        
+        # 遍历所有functional_result类型的评估项
+        for eval_item in config.evaluations:
+            if eval_item.type != 'functional_result':
+                continue
+            
+            item_id = eval_item.item
+            field_name = item_to_field.get(item_id)
+            
+            if not field_name:
+                logger.warning(f"未找到评估项 {item_id} 对应的功能计算字段，跳过")
+                results[item_id] = "是"  # 默认通过
+                continue
+            
+            # 获取阈值（从conditions中获取）
+            threshold = None
+            logic = '>'
+            if eval_item.conditions:
+                threshold = eval_item.conditions[0].threshold
+                logic = eval_item.conditions[0].logic
+            
+            if threshold is None:
+                logger.warning(f"评估项 {item_id} 没有设置阈值，跳过")
+                results[item_id] = "是"  # 默认通过
+                continue
+            
+            # 从功能计算汇总表中提取所有对应的值
+            values = []
+            for result in functional_results:
+                value = result.get(field_name)
+                if value is not None:
+                    values.append(value)
+            
+            if not values:
+                logger.warning(f"评估项 {item_id} 在功能计算汇总表中没有找到数据，默认填'是'")
+                results[item_id] = "是"
+                continue
+            
+            # 判断逻辑：所有值是否均满足条件（大于阈值）
+            # 若有不满足的，此单元格填否
+            all_meet_condition = True
+            for value in values:
+                if logic == '>':
+                    if not (value > threshold):
+                        all_meet_condition = False
+                        break
+                elif logic == '>=':
+                    if not (value >= threshold):
+                        all_meet_condition = False
+                        break
+                elif logic == '<':
+                    if not (value < threshold):
+                        all_meet_condition = False
+                        break
+                elif logic == '<=':
+                    if not (value <= threshold):
+                        all_meet_condition = False
+                        break
+                elif logic == '==':
+                    if not (abs(value - threshold) < 1e-9):
+                        all_meet_condition = False
+                        break
+                else:
+                    logger.warning(f"不支持的逻辑操作: {logic}，默认返回False")
+                    all_meet_condition = False
+                    break
+            
+            results[item_id] = "是" if all_meet_condition else "否"
+            logger.info(f"评估项 {item_id} ({eval_item.assessment_name}): "
+                       f"共{len(values)}个值，阈值={threshold}，逻辑={logic}，结果={results[item_id]}")
+        
+        return results
 
