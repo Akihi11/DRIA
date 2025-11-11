@@ -1,0 +1,123 @@
+"reportConfig": {
+    "sections": [],
+    "statusEval": {
+      "type": "continuous_check",
+      "conditionLogic": "AND",
+      "assessment_content_map": {
+        "pressureStatus": "检查并判断传感器的工作状态情况。",
+        "surge": "检查整个实验过程是否发生喘振。",
+        "voltageCurrent": "判断电机的工作状态情况。",
+        "flow": "判断燃油流量测量状态情况。",
+        "overTemp": "判断发动机排气温度是否发生超过规定的车台保护值的异常情况。",
+        "overSpeed": "判断发动机转速是否发生超过规定的车台保护值的异常情况。"
+      },
+      "evaluations": [
+        {
+          "item": "pressureStatus",
+          "assessmentName": "压力传感器状态",
+          "conditions": [
+            {
+              "channel": "滑油压力",
+              "statistic": "平均值",
+              "duration": 1,
+              "logic": "<", 
+              "threshold": 950 
+            },
+            {
+              "channel": "系统电流",
+              "statistic": "平均值",
+              "duration": 1,
+              "logic": "<",
+              "threshold": 10 
+            }
+          ]
+        },
+        {
+          "item": "surge",
+          "assessmentName": "喘振",
+          "conditions": [
+            {
+              "channel": "滑油压力",
+              "statistic": "差值计算",
+              "duration": 10,
+              "logic": "<", 
+              "threshold": 800 
+            }
+          ]
+        },
+        {
+          "item": "voltageCurrent",
+          "assessmentName": "起动电压/电流状态",
+          "conditions": [
+            {
+              "channel": "系统电流",
+              "statistic": "平均值",
+              "duration": 1.0,
+              "logic": "<",
+              "threshold": 20.0 
+            },
+            {
+              "channel": "系统电压",
+              "statistic": "平均值",
+              "duration": 1.0,
+              "logic": "<",
+              "threshold": 16000.0 
+            },
+            {
+              "channel": "滑油压力",
+              "statistic": "平均值",
+              "duration": 1.0,
+              "logic": "<",
+              "threshold": 950.0
+            }
+          ]
+        },
+        {
+          "item": "flow",
+          "assessmentName": "流量测量状态",
+          "conditions": [
+            {
+              "channel": "系统电流",
+              "statistic": "平均值",
+              "duration": 1.0,
+              "logic": "<",
+              "threshold": 20.0
+            },
+            {
+              "channel": "系统电压",
+              "statistic": "平均值",
+              "duration": 1.0,
+              "logic": "<",
+              "threshold": 17000.0 
+            }
+          ]
+        },
+        {
+          "item": "overSpeed",
+          "assessmentName": "超转保护",
+          "conditions": [
+            {
+              "channel": "Ng",
+              "statistic": "瞬时值",
+              "duration": null,
+              "logic": "<", 
+              "threshold": 18000
+            }
+          ]
+        },
+        {
+          "item": "overTemp",
+          "assessmentName": "超温保护",
+          "conditions": [
+            {
+              "channel": "排气温度",
+              "statistic": "瞬时值",
+              "duration": null,
+              "logic": "<", 
+              "threshold": 850
+            }
+          ]
+        }
+      ]
+    }
+  }

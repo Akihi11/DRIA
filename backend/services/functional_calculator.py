@@ -13,7 +13,7 @@ from typing import List, Dict, Tuple, Any, Optional
 from dataclasses import dataclass
 import logging
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 # 日志记录器将由调用方（你的测试文件）配置
 logger = logging.getLogger(__name__)
@@ -581,8 +581,11 @@ class FunctionalCalculator:
                 else:
                     return value
             
+            # 启动次数显示为“第N次”
+            startup_count_display = f"第{row_data['startup_count']}次"
+            
             row = [
-                row_data['startup_count'],
+                startup_count_display,
                 format_value(row_data['time_base']),
                 format_value(row_data['startup_time']),
                 format_value(row_data['ignition_time']),
@@ -594,6 +597,17 @@ class FunctionalCalculator:
         column_widths = [12, 15, 15, 15, 15, 15]
         for col_idx, width in enumerate(column_widths, start=1):
             ws.column_dimensions[chr(64 + col_idx)].width = width
+
+        # 为整张表设置细边框与居中对齐
+        thin = Side(style="thin", color="000000")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        max_row = ws.max_row
+        max_col = len(headers)
+        for r in range(1, max_row + 1):
+            for c in range(1, max_col + 1):
+                cell = ws.cell(row=r, column=c)
+                cell.border = border
+                cell.alignment = Alignment(horizontal='center', vertical='center')
         
         wb.save(output_path)
         logger.info(f"Excel文件已保存到: {output_path}")

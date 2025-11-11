@@ -39,6 +39,9 @@ const ChatPage: React.FC = () => {
   const [statusEvalModalVisible, setStatusEvalModalVisible] = useState<boolean>(false)
   const [availableEvalItems, setAvailableEvalItems] = useState<Array<{id: string, name: string}>>([])
   const [selectedEvalItems, setSelectedEvalItems] = useState<string[]>([])
+  // 弹窗提交中状态，防止二次点击
+  const [channelSubmitting, setChannelSubmitting] = useState<boolean>(false)
+  const [statusEvalSubmitting, setStatusEvalSubmitting] = useState<boolean>(false)
 
   // 功能计算类评估项ID集合；这些项目在状态评估里禁选
   const functionalIds = new Set(['ngRundown', 'npRundown', 'startupTime', 'ignitionTime'])
@@ -410,6 +413,7 @@ const ChatPage: React.FC = () => {
 
   // 应用状态评估项目选择
   const applyStatusEvalItemSelection = async () => {
+    if (statusEvalSubmitting) return
     if (!configMode.sessionId) return
 
     if (selectedEvalItems.length === 0) {
@@ -417,6 +421,7 @@ const ChatPage: React.FC = () => {
       return
     }
 
+    setStatusEvalSubmitting(true)
     setIsLoading(true)
     try {
       // 选择所有评估项目
@@ -476,12 +481,14 @@ const ChatPage: React.FC = () => {
     } catch (e) {
       message.error('应用评估项目选择失败，请重试')
     } finally {
+      setStatusEvalSubmitting(false)
       setIsLoading(false)
     }
   }
 
   // 应用"稳态参数"通道选择
   const applySteadyStateChannelSelection = async () => {
+    if (channelSubmitting) return
     if (!configMode.sessionId) return
 
     // 不再强制要求转速通道，至少选择一个通道即可
@@ -490,6 +497,7 @@ const ChatPage: React.FC = () => {
       return
     }
 
+    setChannelSubmitting(true)
     setIsLoading(true)
     try {
       // 1) 先选择所有通道
@@ -566,6 +574,7 @@ const ChatPage: React.FC = () => {
     } catch (e) {
       message.error('应用通道选择失败，请重试')
     } finally {
+      setChannelSubmitting(false)
       setIsLoading(false)
     }
   }
@@ -779,13 +788,26 @@ const ChatPage: React.FC = () => {
       <Modal
         title="请选择用于稳态参数的通道"
         open={channelModalVisible}
+        maskClosable={false}
+        keyboard={!channelSubmitting}
         onCancel={() => setChannelModalVisible(false)}
         footer={[
-          <Button key="cancel" onClick={() => setChannelModalVisible(false)}>取消</Button>,
-          <Button key="ok" type="primary" onClick={applySteadyStateChannelSelection}>确定</Button>
+          <Button key="cancel" onClick={() => setChannelModalVisible(false)} disabled={channelSubmitting}>取消</Button>,
+          <Button key="ok" type="primary" onClick={applySteadyStateChannelSelection} loading={channelSubmitting}>确定</Button>
         ]}
       >
-        <div style={{ marginBottom: 16 }}>
+        <Checkbox.Group
+          style={{ width: '100%' }}
+          value={selectedChannels}
+          onChange={(vals) => setSelectedChannels(vals as string[])}
+        >
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {lastFileChannels.map(name => (
+              <Checkbox key={name} value={name}>{name}</Checkbox>
+            ))}
+          </Space>
+        </Checkbox.Group>
+        <div style={{ marginTop: 16 }}>
           <Button 
             type="link" 
             onClick={() => {
@@ -801,44 +823,20 @@ const ChatPage: React.FC = () => {
             {selectedChannels.length === lastFileChannels.length ? '取消全选' : '全选'}
           </Button>
         </div>
-        <Checkbox.Group
-          style={{ width: '100%' }}
-          value={selectedChannels}
-          onChange={(vals) => setSelectedChannels(vals as string[])}
-        >
-          <Space direction="vertical" style={{ width: '100%' }}>
-            {lastFileChannels.map(name => (
-              <Checkbox key={name} value={name}>{name}</Checkbox>
-            ))}
-          </Space>
-        </Checkbox.Group>
       </Modal>
 
       {/* 状态评估 - 评估项目选择弹窗 */}
       <Modal
         title="请选择需要评估的项目"
         open={statusEvalModalVisible}
+        maskClosable={false}
+        keyboard={!statusEvalSubmitting}
         onCancel={() => setStatusEvalModalVisible(false)}
         footer={[
-          <Button key="cancel" onClick={() => setStatusEvalModalVisible(false)}>取消</Button>,
-          <Button key="ok" type="primary" onClick={applyStatusEvalItemSelection}>确定</Button>
+          <Button key="cancel" onClick={() => setStatusEvalModalVisible(false)} disabled={statusEvalSubmitting}>取消</Button>,
+          <Button key="ok" type="primary" onClick={applyStatusEvalItemSelection} loading={statusEvalSubmitting}>确定</Button>
         ]}
       >
-        <div style={{ marginBottom: 16 }}>
-          <Button 
-            type="link" 
-            onClick={() => {
-              // 全选：仅选择可选项（功能项一律禁选）
-              const selectable = availableEvalItems
-                .filter((item) => isFullReport || !functionalIds.has(item.id))
-                .map((item) => item.id)
-              const allSelected = selectedEvalItems.length === selectable.length
-              setSelectedEvalItems(allSelected ? [] : selectable)
-            }}
-          >
-            {selectedEvalItems.length === availableEvalItems.filter(i => isFullReport || !functionalIds.has(i.id)).length ? '取消全选' : '全选'}
-          </Button>
-        </div>
         <Checkbox.Group
           style={{ width: '100%' }}
           value={selectedEvalItems}
@@ -853,6 +851,21 @@ const ChatPage: React.FC = () => {
             })}
           </Space>
         </Checkbox.Group>
+        <div style={{ marginTop: 16 }}>
+          <Button 
+            type="link" 
+            onClick={() => {
+              // 全选：仅选择可选项（功能项一律禁选）
+              const selectable = availableEvalItems
+                .filter((item) => isFullReport || !functionalIds.has(item.id))
+                .map((item) => item.id)
+              const allSelected = selectedEvalItems.length === selectable.length
+              setSelectedEvalItems(allSelected ? [] : selectable)
+            }}
+          >
+            {selectedEvalItems.length === availableEvalItems.filter(i => isFullReport || !functionalIds.has(i.id)).length ? '取消全选' : '全选'}
+          </Button>
+        </div>
       </Modal>
     </div>
   )

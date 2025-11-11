@@ -1,8 +1,8 @@
 {
   "sourceFileId": "Simulated_Data.csv",
-  "fileId": "97ee60e1-eed2-4f13-a3bf-edfe1e1ea19c",
+  "fileId": "214ac0e5-e3a4-4838-833d-d9f68c7955ff",
   "configFileName": "config_session.json",
-  "uploadTime": "2025-11-11T14:02:39.390422",
+  "uploadTime": "2025-11-11T16:56:56.367084",
   "channels": [
     {
       "channel_name": "系统电流",
@@ -95,7 +95,7 @@
       }
     }
   ],
-  "availableChannels": [
+    "availableChannels": [
     "系统电流",
     "系统电压",
     "滑油压力",
@@ -338,7 +338,7 @@
   "reportType": "完整报表",
   "history": [
     {
-      "timestamp": "2025-11-11T14:02:41.450077",
+      "timestamp": "2025-11-11T16:56:58.129043",
       "action": "set_report_type",
       "value": "完整报表"
     }

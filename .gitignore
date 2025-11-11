@@ -206,3 +206,8 @@ frontend/.env.production.local
 *.njsproj
 *.sln
 *.sw?
+
+#test
+tests/
+tests1/
+windows_test/

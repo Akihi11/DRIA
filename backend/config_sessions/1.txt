@@ -1,0 +1,31 @@
+"conditions": [
+{
+    "type": "statistic",
+    "channel": "np",
+    "statistic": "平均值",
+    "duration": 1,
+    "logic": ">",
+    "threshold": 200
+}
+],
+"conditionLogic": "Cond1_Only"
+
+
+"conditions": [
+        {
+          "type": "statistic",
+          "channel": "Np",
+          "statistic": "最大值",
+          "duration": 1,
+          "logic": ">",
+          "threshold": 2000
+        },
+        {
+          "type": "amplitude_change",
+          "channel": "排气温度",
+          "duration": 1,
+          "logic": ">",
+          "threshold": 200
+        }
+      ],
+      "conditionLogic": "AND"

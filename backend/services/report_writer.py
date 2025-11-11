@@ -59,7 +59,7 @@ class ReportWriter:
             timestamp = float(snapshot['timestamp'])  # 确保时间戳是数值
             row_values = [timestamp] + [float(snapshot['data'][ch]) for ch in display_channels]
             self.worksheet.append(row_values)
-            
+
             # 确保Excel单元格格式为数值格式
             current_row = self.worksheet.max_row
             # 时间列设置为数值格式
@@ -70,14 +70,16 @@ class ReportWriter:
                 data_cell = self.worksheet.cell(row=current_row, column=col_idx)
                 data_cell.number_format = '0.00'
         
-        # 设置全表格细边框
+        # 设置全表格细边框与居中
         thin = Side(style="thin", color="000000")
         border = Border(left=thin, right=thin, top=thin, bottom=thin)
         max_row = self.worksheet.max_row
         max_col = len(headers)
         for r in range(1, max_row + 1):
             for c in range(1, max_col + 1):
-                self.worksheet.cell(row=r, column=c).border = border
+                cell = self.worksheet.cell(row=r, column=c)
+                cell.border = border
+                cell.alignment = Alignment(horizontal='center', vertical='center')
 
         logger.info(f"已写入 {len(snapshots)} 行数据")
         
@@ -250,11 +252,11 @@ class ReportWriter:
             self.worksheet.append(row_values)
             row_count += 1
             
-            # 格式化数据行
+            # 格式化数据行（单元格内容居中）
             current_row = self.worksheet.max_row
             for col_idx in range(1, len(headers) + 1):
                 cell = self.worksheet.cell(row=current_row, column=col_idx)
-                cell.alignment = Alignment(horizontal='left', vertical='center')
+                cell.alignment = Alignment(horizontal='center', vertical='center')
                 
                 # 评估结论列：如果是"否"，可以设置特殊颜色
                 if col_idx == 3:  # 评估结论列（第三列）
@@ -268,14 +270,17 @@ class ReportWriter:
         self.worksheet.column_dimensions['B'].width = 50  # 评估内容
         self.worksheet.column_dimensions['C'].width = 15  # 评估结论
         
-        # 设置全表格细边框
+        # 设置全表格细边框并统一居中
         thin = Side(style="thin", color="000000")
         border = Border(left=thin, right=thin, top=thin, bottom=thin)
         max_row = self.worksheet.max_row
         max_col = len(headers)
         for r in range(1, max_row + 1):
             for c in range(1, max_col + 1):
-                self.worksheet.cell(row=r, column=c).border = border
+                cell = self.worksheet.cell(row=r, column=c)
+                cell.border = border
+                # 不覆盖表头已有的居中，但确保所有单元格为居中
+                cell.alignment = Alignment(horizontal='center', vertical='center')
 
         logger.info(f"已写入 {row_count} 行状态评估数据")
         

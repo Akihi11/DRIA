@@ -1,0 +1,37 @@
+"functionalCalc": {
+"time_base": {
+    "channel": "Ng",
+    "statistic": "平均值",
+    "duration": 1,
+    "logic": ">",
+    "threshold": 2000
+},
+"startup_time": {
+    "channel": "Ng",
+    "statistic": "最大值",
+    "duration": 1,
+    "logic": ">",
+    "threshold": 100
+},
+"ignition_time": {
+    "channel": "滑油压力",
+    "type": "difference",
+    "duration": 15,
+    "logic": ">",
+    "threshold": 300
+},
+"rundown_ng": {
+    "channel": "Ng",
+    "statistic": "平均值",
+    "duration": 1,
+    "threshold1": 2600,
+    "threshold2": 1000
+},
+"rundown_np": {
+    "channel": "Np",
+    "statistic": "平均值",
+    "duration": 1,
+    "threshold1": 2400,
+    "threshold2": 800
+}
+}
