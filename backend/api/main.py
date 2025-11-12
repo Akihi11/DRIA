@@ -19,7 +19,20 @@ if str(project_root) not in sys.path:
 
 from config import settings
 from models.api_models import ErrorResponse
-from api.routes import dialogue, health, config, upload, analysis, config_dialogue, steady_state, status_evaluation, functional, report_config, combined_report
+from api.routes import (
+    dialogue,
+    health,
+    config,
+    upload,
+    analysis,
+    config_dialogue,
+    steady_state,
+    status_evaluation,
+    functional,
+    report_config,
+    combined_report,
+)
+from backend.services.db import init_schema
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL))
@@ -49,6 +62,12 @@ async def lifespan(app: FastAPI):
         logger.warning(f"⚠️  默认提供商 '{settings.DEFAULT_LLM_PROVIDER}' 不可用，将使用: {available_providers[0]}")
     else:
         logger.info(f"✅ 默认提供商 '{settings.DEFAULT_LLM_PROVIDER}' 已正确配置")
+    
+    try:
+        init_schema()
+        logger.info("✅ 数据库表结构检查完成")
+    except Exception as db_err:
+        logger.warning(f"⚠️ 数据库初始化失败，相关功能将不可用: {db_err}")
     
     logger.info("AI Chat API ready for pure dialogue conversations")
     

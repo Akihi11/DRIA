@@ -9,6 +9,7 @@ import sys
 import logging
 import uuid
 import json
+import tempfile
 
 # 添加父目录到Python路径
 current_dir = Path(__file__).parent
@@ -16,6 +17,7 @@ parent_dir = current_dir.parent.parent
 sys.path.insert(0, str(parent_dir))
 
 from backend.services.functional_service import FunctionalService
+from services.db import materialize_uploaded_file, save_report_file, get_report_file_by_name
 
 logger = logging.getLogger(__name__)
 
@@ -83,60 +85,58 @@ async def generate_functional_report(request: FunctionalRequest):
     }
     """
     try:
-        # 1. 获取数据文件路径
-        uploads_dir = parent_dir / "uploads"
-        file_path = uploads_dir / f"{request.file_id}.csv"
-        
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail=f"文件 {request.file_id} 不存在")
-        
-        # 2. 确定配置文件路径
-        if request.config_path:
-            # 使用提供的配置文件路径
-            config_path = Path(request.config_path)
-            if not config_path.exists():
-                raise HTTPException(status_code=404, detail=f"配置文件 {request.config_path} 不存在")
-        elif request.functional_calc:
-            # 创建临时配置文件
-            report_id = str(uuid.uuid4())
-            reports_dir = parent_dir / "reports"
-            reports_dir.mkdir(parents=True, exist_ok=True)
-            
-            # 创建临时目录用于存储配置文件
-            temp_config_dir = reports_dir / report_id
-            temp_config_dir.mkdir(parents=True, exist_ok=True)
-            config_path = temp_config_dir / "config.json"
-            
-            # 构建配置
-            config = {
-                "reportConfig": {
-                    "functionalCalc": request.functional_calc
-                }
-            }
-            
-            # 保存配置文件
-            with open(config_path, 'w', encoding='utf-8') as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
-        else:
-            raise HTTPException(status_code=400, detail="必须提供 config_path 或 functional_calc 配置")
-        
-        # 3. 调用服务生成报表
         report_id = str(uuid.uuid4())
-        reports_dir = parent_dir / "reports"
-        report_file_path = reports_dir / f"functional_report-{report_id}.xlsx"
-        
-        service = FunctionalService()
-        report_path = service.generate_report_simple(
-            str(config_path),
-            str(file_path),
-            str(report_file_path)
-        )
-        
-        # 4. 返回结果
+        report_name = f"functional_report-{report_id}.xlsx"
+
+        try:
+            with materialize_uploaded_file(request.file_id) as (file_path, _meta):
+                if request.config_path:
+                    config_path = Path(request.config_path)
+                    if not config_path.exists():
+                        raise HTTPException(status_code=404, detail=f"配置文件 {request.config_path} 不存在")
+                    temp_config_context = None
+                elif request.functional_calc:
+                    temp_config_context = tempfile.TemporaryDirectory(prefix="functional_config_")
+                    tmp_config_dir = Path(temp_config_context.name)
+                    config_path = tmp_config_dir / "config.json"
+                    config = {
+                        "reportConfig": {
+                            "functionalCalc": request.functional_calc
+                        }
+                    }
+                    with open(config_path, 'w', encoding='utf-8') as f:
+                        json.dump(config, f, ensure_ascii=False, indent=2)
+                else:
+                    raise HTTPException(status_code=400, detail="必须提供 config_path 或 functional_calc 配置")
+
+                try:
+                    with tempfile.TemporaryDirectory(prefix="functional_report_") as tmp_dir:
+                        tmp_dir_path = Path(tmp_dir)
+                        report_output_path = tmp_dir_path / report_name
+                        service = FunctionalService()
+                        report_path = service.generate_report_simple(
+                            str(config_path),
+                            str(file_path),
+                            str(report_output_path)
+                        )
+                        report_bytes = Path(report_path).read_bytes()
+                        save_report_file(
+                            file_id=request.file_id,
+                            report_name=report_name,
+                            content=report_bytes,
+                        )
+                finally:
+                    if temp_config_context is not None:
+                        temp_config_context.cleanup()
+
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail=f"文件 {request.file_id} 不存在")
+
+        download_path = f"/api/reports/functional/{report_id}/download"
         return FunctionalResponse(
             report_id=report_id,
             message="功能计算报表生成成功",
-            file_path=report_path
+            file_path=download_path
         )
         
     except HTTPException:
@@ -156,19 +156,16 @@ async def download_functional_report(report_id: str):
     - **report_id**: 报表ID
     """
     try:
-        # 新格式：reports/functional_report-{uuid}.xlsx
-        reports_dir = parent_dir / "reports"
-        report_file = reports_dir / f"functional_report-{report_id}.xlsx"
-        
-        if not report_file.exists():
+        report_name = f"functional_report-{report_id}.xlsx"
+        row = get_report_file_by_name(report_name)
+        if not row:
             raise HTTPException(status_code=404, detail="报表文件不存在")
-        
-        from fastapi.responses import FileResponse
-        return FileResponse(
-            path=str(report_file),
-            filename=f"functional_report-{report_id}.xlsx",
-            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
+
+        report_name, content_type, content = row
+
+        from fastapi.responses import Response
+        headers = {"Content-Disposition": f'attachment; filename="{report_name}"'}
+        return Response(content=bytes(content), media_type=content_type, headers=headers)
         
     except HTTPException:
         raise

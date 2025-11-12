@@ -9,6 +9,7 @@ import sys
 import logging
 import uuid
 import json
+import tempfile
 
 # 添加父目录到Python路径
 current_dir = Path(__file__).parent
@@ -16,6 +17,7 @@ parent_dir = current_dir.parent.parent
 sys.path.insert(0, str(parent_dir))
 
 from backend.services.steady_state_service import SteadyStateService
+from services.db import materialize_uploaded_file, save_report_file, get_report_file_by_name
 
 logger = logging.getLogger(__name__)
 
@@ -61,74 +63,76 @@ async def generate_steady_state_report(request: SteadyStateRequest):
     - threshold: 阈值
     """
     try:
-        # 1. 获取数据文件路径
-        uploads_dir = parent_dir / "uploads"
-        file_path = uploads_dir / f"{request.file_id}.csv"
-        
-        if not file_path.exists():
+        report_id = str(uuid.uuid4())
+        report_name = f"steady_state_report-{report_id}.xlsx"
+        # 1. 获取数据文件临时路径
+        try:
+            with materialize_uploaded_file(request.file_id) as (file_path, _meta):
+                # 2. 创建临时配置和输出目录
+                with tempfile.TemporaryDirectory(prefix="steady_state_") as tmp_dir:
+                    tmp_dir_path = Path(tmp_dir)
+                    config_path = tmp_dir_path / "config.json"
+                    config = {
+                        "reportConfig": {
+                            "stableState": {
+                                "displayChannels": request.display_channels,
+                                "conditionLogic": request.condition_logic,
+                                "conditions": []
+                            }
+                        }
+                    }
+                    
+                    # 添加条件1
+                    if request.condition1 and request.condition1.get('enabled', False):
+                        condition1 = {
+                            "type": "statistic",
+                            "channel": request.condition1.get('channel'),
+                            "statistic": request.condition1.get('statistic', '平均值'),
+                            "duration": request.condition1.get('duration_sec', 1.0),
+                            "logic": request.condition1.get('logic', '>'),
+                            "threshold": request.condition1.get('threshold', 0.0)
+                        }
+                        config["reportConfig"]["stableState"]["conditions"].append(condition1)
+                    
+                    # 添加条件2
+                    if request.condition2 and request.condition2.get('enabled', False):
+                        condition2 = {
+                            "type": "amplitude_change",
+                            "channel": request.condition2.get('channel'),
+                            "duration": request.condition2.get('duration_sec', 1.0),
+                            "logic": request.condition2.get('logic', '<'),
+                            "threshold": request.condition2.get('threshold', 0.0)
+                        }
+                        config["reportConfig"]["stableState"]["conditions"].append(condition2)
+                    
+                    # 保存配置文件
+                    with open(config_path, 'w', encoding='utf-8') as f:
+                        json.dump(config, f, ensure_ascii=False, indent=2)
+                    
+                    # 3. 调用服务生成报表
+                    report_output_path = tmp_dir_path / report_name
+                    service = SteadyStateService()
+                    report_path = service.generate_report(
+                        str(config_path),
+                        str(file_path),
+                        str(report_output_path)
+                    )
+
+                    report_bytes = Path(report_path).read_bytes()
+                    save_report_file(
+                        file_id=request.file_id,
+                        report_name=report_name,
+                        content=report_bytes,
+                    )
+
+        except FileNotFoundError:
             raise HTTPException(status_code=404, detail=f"文件 {request.file_id} 不存在")
         
-        # 2. 创建临时配置文件
-        report_id = str(uuid.uuid4())
-        reports_dir = parent_dir / "reports"
-        reports_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 创建临时目录用于存储配置文件
-        temp_config_dir = reports_dir / report_id
-        temp_config_dir.mkdir(parents=True, exist_ok=True)
-        config_path = temp_config_dir / "config.json"
-        config = {
-            "reportConfig": {
-                "stableState": {
-                    "displayChannels": request.display_channels,
-                    "conditionLogic": request.condition_logic,
-                    "conditions": []
-                }
-            }
-        }
-        
-        # 添加条件1
-        if request.condition1 and request.condition1.get('enabled', False):
-            condition1 = {
-                "type": "statistic",
-                "channel": request.condition1.get('channel'),
-                "statistic": request.condition1.get('statistic', '平均值'),
-                "duration": request.condition1.get('duration_sec', 1.0),
-                "logic": request.condition1.get('logic', '>'),
-                "threshold": request.condition1.get('threshold', 0.0)
-            }
-            config["reportConfig"]["stableState"]["conditions"].append(condition1)
-        
-        # 添加条件2
-        if request.condition2 and request.condition2.get('enabled', False):
-            condition2 = {
-                "type": "amplitude_change",
-                "channel": request.condition2.get('channel'),
-                "duration": request.condition2.get('duration_sec', 1.0),
-                "logic": request.condition2.get('logic', '<'),
-                "threshold": request.condition2.get('threshold', 0.0)
-            }
-            config["reportConfig"]["stableState"]["conditions"].append(condition2)
-        
-        # 保存配置文件
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
-        
-        # 3. 调用服务生成报表
-        # 新格式：reports/steady_state_report-{uuid}.xlsx
-        report_file_path = reports_dir / f"steady_state_report-{report_id}.xlsx"
-        service = SteadyStateService()
-        report_path = service.generate_report(
-            str(config_path),
-            str(file_path),
-            str(report_file_path)
-        )
-        
-        # 4. 返回结果
+        download_path = f"/api/reports/steady_state/{report_id}/download"
         return SteadyStateResponse(
             report_id=report_id,
             message="稳定状态报表生成成功",
-            file_path=report_path
+            file_path=download_path
         )
         
     except HTTPException:
@@ -146,29 +150,26 @@ async def download_steady_state_report(report_id: str):
     - **report_id**: 报表ID
     """
     try:
-        # 新格式：reports/steady_state_report-{uuid}.xlsx
-        reports_dir = parent_dir / "reports"
-        # 若存在同 report_id 的合并报表，优先返回合并报表（兼容前端仅调用稳态下载接口的场景）
-        combined_file = reports_dir / f"combined_report-{report_id}.xlsx"
-        if combined_file.exists():
-            # 若存在合并报表，重定向到合并报表下载接口，使前端与日志均显示合并下载URL
+        report_name = f"steady_state_report-{report_id}.xlsx"
+        combined_name = f"combined_report-{report_id}.xlsx"
+
+        combined_row = get_report_file_by_name(combined_name)
+        if combined_row:
             from fastapi.responses import RedirectResponse
             return RedirectResponse(
                 url=f"/api/reports/combined/{report_id}/download?from=steady_state",
                 status_code=307
             )
 
-        report_file = reports_dir / f"steady_state_report-{report_id}.xlsx"
-        
-        if not report_file.exists():
+        row = get_report_file_by_name(report_name)
+        if not row:
             raise HTTPException(status_code=404, detail="报表文件不存在")
-        
-        from fastapi.responses import FileResponse
-        return FileResponse(
-            path=str(report_file),
-            filename=f"steady_state_report-{report_id}.xlsx",
-            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
+
+        report_name, content_type, content = row
+
+        from fastapi.responses import Response
+        headers = {"Content-Disposition": f'attachment; filename="{report_name}"'}
+        return Response(content=bytes(content), media_type=content_type, headers=headers)
         
     except HTTPException:
         raise

@@ -8,7 +8,6 @@ import numpy as np
 from datetime import datetime
 import sys
 from pathlib import Path
-import os
 import logging
 
 # 添加父目录到Python路径以支持相对导入
@@ -22,6 +21,7 @@ from backend.models.api_models import (
     ChannelStatistics,
     ErrorResponse
 )
+from services.db import materialize_uploaded_file
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -37,24 +37,29 @@ async def analyze_channels(request: ChannelAnalysisRequest):
     """
     
     try:
-        # 构建文件路径
-        uploads_dir = Path(__file__).parent.parent.parent / "uploads"
-        file_path = uploads_dir / f"{request.file_id}.csv"
-        
-        # 检查文件是否存在
-        if not file_path.exists():
+        try:
+            with materialize_uploaded_file(request.file_id) as (file_path, meta):
+                suffix = file_path.suffix.lower()
+                if suffix == ".csv":
+                    df = pd.read_csv(file_path)
+                elif suffix in [".xlsx", ".xls"]:
+                    df = pd.read_excel(file_path)
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"不支持的文件类型: {suffix}",
+                    )
+        except FileNotFoundError:
             raise HTTPException(
                 status_code=404,
                 detail=f"文件 {request.file_id} 不存在"
             )
-        
-        # 读取CSV文件
-        try:
-            df = pd.read_csv(file_path)
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(
                 status_code=400,
-                detail=f"无法读取CSV文件: {str(e)}"
+                detail=f"无法读取文件: {str(e)}"
             )
         
         # 检查数据是否为空

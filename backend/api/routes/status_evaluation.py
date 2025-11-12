@@ -16,6 +16,7 @@ parent_dir = current_dir.parent.parent
 sys.path.insert(0, str(parent_dir))
 
 from backend.services.status_evaluation_service import StatusEvaluationService
+from backend.services.db import save_report_file, get_report_file_by_name
 
 logger = logging.getLogger(__name__)
 
@@ -143,12 +144,16 @@ async def generate_status_evaluation_report(request: StatusEvaluationRequest):
             str(report_file_path)
         )
         
-        # 4. 返回结果
-        return StatusEvaluationResponse(
-            report_id=report_id,
-            message="状态评估报表生成成功",
-            file_path=report_path
+        # 4. 将报表写入数据库并返回下载路径
+        report_name = f"status_evaluation_report-{report_id}.xlsx"
+        report_bytes = Path(report_path).read_bytes()
+        save_report_file(
+            file_id=request.file_id,
+            report_name=report_name,
+            content=report_bytes,
         )
+        download_path = f"/api/reports/status_evaluation/{report_id}/download"
+        return StatusEvaluationResponse(report_id=report_id, message="状态评估报表生成成功", file_path=download_path)
         
     except HTTPException:
         raise
@@ -167,18 +172,27 @@ async def download_status_evaluation_report(report_id: str):
     - **report_id**: 报表ID
     """
     try:
-        reports_dir = parent_dir / "reports"
-        report_file = reports_dir / f"status_evaluation_report-{report_id}.xlsx"
-        
-        if not report_file.exists():
+        report_name = f"status_evaluation_report-{report_id}.xlsx"
+        combined_name = f"combined_report-{report_id}.xlsx"
+
+        # 若存在合并报表，则保持与稳态下载一致的重定向行为
+        combined_row = get_report_file_by_name(combined_name)
+        if combined_row:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(
+                url=f"/api/reports/combined/{report_id}/download?from=status_evaluation",
+                status_code=307
+            )
+
+        row = get_report_file_by_name(report_name)
+        if not row:
             raise HTTPException(status_code=404, detail="报表文件不存在")
-        
-        from fastapi.responses import FileResponse
-        return FileResponse(
-            path=str(report_file),
-            filename=f"status_evaluation_report-{report_id}.xlsx",
-            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
+
+        report_name, content_type, content = row
+
+        from fastapi.responses import Response
+        headers = {"Content-Disposition": f'attachment; filename="{report_name}"'}
+        return Response(content=bytes(content), media_type=content_type, headers=headers)
         
     except HTTPException:
         raise

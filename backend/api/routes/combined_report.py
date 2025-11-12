@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.services.combined_report_service import CombinedReportService
+from backend.services.db import save_report_file, get_report_file_by_name
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -62,11 +63,16 @@ async def generate_combined_report(request: CombinedReportRequest):
             str(merged_report_path)
         )
 
-        return CombinedReportResponse(
-            report_id=report_id,
-            message="合并报表生成成功（稳态/功能计算/状态评估三表合一）",
-            file_path=result_path
+        # 将合并报表写入数据库并返回下载路径
+        report_name = f"combined_report-{report_id}.xlsx"
+        report_bytes = Path(result_path).read_bytes()
+        save_report_file(
+            file_id=request.file_id,
+            report_name=report_name,
+            content=report_bytes,
         )
+        download_path = f"/api/reports/combined/{report_id}/download"
+        return CombinedReportResponse(report_id=report_id, message="合并报表生成成功（稳态/功能计算/状态评估三表合一）", file_path=download_path)
     except HTTPException:
         raise
     except Exception as e:
@@ -80,11 +86,20 @@ async def download_combined_report(report_id: str):
     下载合并报表文件
     """
     try:
-        # 计算项目根目录，避免从 api.main 导入以打破循环依赖
+        report_file = None
+        # 优先从数据库获取
+        report_name = f"combined_report-{report_id}.xlsx"
+        row = get_report_file_by_name(report_name)
+        if row:
+            report_name, content_type, content = row
+            from fastapi.responses import Response
+            headers = {"Content-Disposition": f'attachment; filename="{report_name}"'}
+            return Response(content=bytes(content), media_type=content_type, headers=headers)
+
+        # 兼容：若DB未启用或未找到，则回退到文件系统
         project_root = _PathAlias(__file__).parent.parent.parent
         reports_dir = project_root / "reports"
         report_file = reports_dir / f"combined_report-{report_id}.xlsx"
-
         if not report_file.exists():
             raise HTTPException(status_code=404, detail="合并报表文件不存在")
 

@@ -1,10 +1,10 @@
 """
 文件上传API路由
 """
-import os
 import uuid
 from pathlib import Path
 from typing import List
+import tempfile
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
 import logging
@@ -19,14 +19,16 @@ sys.path.insert(0, str(parent_dir))
 from config import settings
 from models.api_models import ErrorResponse
 from services.channel_analysis_service import ChannelAnalysisService
+from services.db import (
+    save_raw_file,
+    save_json_config,
+    list_uploaded_files,
+    delete_uploaded_file,
+)
 import json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# 确保上传目录存在
-UPLOAD_DIR = Path(settings.UPLOAD_DIR)
-UPLOAD_DIR.mkdir(exist_ok=True)
 
 # 允许的文件扩展名
 ALLOWED_EXTENSIONS = settings.ALLOWED_EXTENSIONS.split(',')
@@ -74,33 +76,46 @@ async def upload_file(file: UploadFile = File(...)):
                 detail=f"文件大小超过限制。最大允许: {max_size_mb}MB"
             )
         
-        # 生成唯一文件名
+        # 生成唯一文件ID
         file_id = str(uuid.uuid4())
-        file_ext = Path(file.filename).suffix
-        new_filename = f"{file_id}{file_ext}"
-        file_path = UPLOAD_DIR / new_filename
-        
-        # 保存文件
-        with open(file_path, "wb") as buffer:
-            buffer.write(file_content)
-        
-        logger.info(f"文件上传成功: {file.filename} -> {new_filename}")
-        
+        file_ext = Path(file.filename).suffix.lower()
+
+        # 将文件内容写入临时文件以便复用现有分析逻辑
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+            tmp.write(file_content)
+            temp_path = Path(tmp.name)
+
+        logger.info(f"文件上传成功: {file.filename} -> {file_id}")
+
         # 自动进行通道分析
         analysis_service = ChannelAnalysisService()
-        analysis_result = analysis_service.analyze_file(str(file_path))
+        try:
+            analysis_result = analysis_service.analyze_file(str(temp_path))
+        finally:
+            temp_path.unlink(missing_ok=True)
         
         # 确保分析结果有效
         if not analysis_result or not analysis_result.get("success"):
             logger.warning(f"文件分析可能失败，但仍继续创建JSON文件。结果: {analysis_result}")
         
+        # 保存原始文件到数据库
+        content_type = getattr(file, "content_type", None)
+        category = "excel" if file_ext in [".xlsx", ".xls"] else "csv"
+        save_raw_file(
+            file_id=file_id,
+            file_name=file.filename,
+            content=file_content,
+            category=category,
+            content_type=content_type,
+        )
+
         # 构建响应数据
         response_data = {
             "success": True,
             "message": "文件上传成功",
             "file_id": file_id,
             "filename": file.filename,
-            "saved_filename": new_filename,
+            "saved_filename": None,
             "file_size": file_size,
             "upload_time": datetime.now().isoformat(),
             "analysis": analysis_result
@@ -173,6 +188,9 @@ async def upload_file(file: UploadFile = File(...)):
                 json.dump(config_content, f, ensure_ascii=False, indent=2)
             
             logger.info(f"✅ 已创建配置文件: {CONFIG_PATH}")
+
+            # 同步存入数据库
+            save_json_config(file_id=file_id, name="config_session.json", content_obj=config_content)
         except Exception as config_err:
             logger.error(f"❌ 创建配置文件失败: {config_err}", exc_info=True)
 
@@ -193,17 +211,19 @@ async def get_uploaded_files():
     获取已上传的文件列表
     """
     try:
-        files = []
-        for file_path in UPLOAD_DIR.iterdir():
-            if file_path.is_file():
-                stat = file_path.stat()
-                files.append({
-                    "filename": file_path.name,
-                    "size": stat.st_size,
-                    "upload_time": datetime.fromtimestamp(stat.st_ctime).isoformat(),
-                    "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat()
-                })
-        
+        file_rows = list_uploaded_files()
+        files = [
+            {
+                "file_id": row["file_id"],
+                "filename": row["file_name"],
+                "size": row["size"],
+                "content_type": row["content_type"],
+                "category": row["category"],
+                "sha256": row["sha256"],
+                "upload_time": row["created_at"],
+            }
+            for row in file_rows
+        ]
         return {
             "success": True,
             "files": files,
@@ -223,18 +243,10 @@ async def delete_file(file_id: str):
     删除指定的文件
     """
     try:
-        # 查找文件
-        file_path = None
-        for file in UPLOAD_DIR.iterdir():
-            if file.is_file() and file.stem == file_id:
-                file_path = file
-                break
-        
-        if not file_path or not file_path.exists():
+        # 删除数据库中的文件记录
+        deleted = delete_uploaded_file(file_id)
+        if not deleted:
             raise HTTPException(status_code=404, detail="文件不存在")
-        
-        # 删除文件
-        file_path.unlink()
         
         logger.info(f"文件删除成功: {file_id}")
         

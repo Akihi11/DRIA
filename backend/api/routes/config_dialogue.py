@@ -9,6 +9,8 @@ import logging
 import time
 import re
 import json
+import tempfile
+import shutil
 
 # 导入服务
 import sys
@@ -21,6 +23,7 @@ if str(project_root) not in sys.path:
 
 from backend.services.config_manager import config_manager, ConfigStatus
 from backend.services.config_dialogue_parser import config_parser
+from backend.services.db import materialize_uploaded_file, save_report_file
 
 logger = logging.getLogger(__name__)
 
@@ -1880,119 +1883,163 @@ async def complete_config_dialogue(request: CompleteConfigRequest):
             if config_file_path is None:
                 raise ValueError("找不到配置文件，请确保已保存配置")
             
-            # 2. 获取输入数据文件路径
-            uploads_dir = backend_dir / "uploads"
-            input_file_path = None
-            
-            # 从配置文件中读取 fileId（UUID）或 sourceFileId
-            # 优先使用 fileId，因为上传后文件被重命名为 UUID 格式
+            # 2. 获取输入数据文件路径（从数据库中加载临时文件）
             with open(config_file_path, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
-                # 优先使用 fileId（UUID格式），如果没有则使用 sourceFileId
                 file_id = config_data.get("fileId") or config_data.get("sourceFileId")
-            
-            if file_id:
-                # 查找上传的文件（支持多种扩展名）
-                # 如果 file_id 已经是 UUID（不含扩展名），直接拼接扩展名
-                # 如果 file_id 是原始文件名（含扩展名），需要处理
-                for ext in [".csv", ".xlsx", ".xls"]:
-                    # 如果 file_id 已经包含扩展名，尝试直接匹配
-                    if file_id.endswith(ext):
-                        candidate = uploads_dir / file_id
-                        if candidate.exists():
-                            input_file_path = candidate
-                            break
-                    # 否则尝试添加扩展名（UUID 格式的情况）
-                    candidate = uploads_dir / f"{file_id}{ext}"
-                    if candidate.exists():
-                        input_file_path = candidate
-                        break
-            
-            if not input_file_path or not input_file_path.exists():
-                raise ValueError(f"找不到输入数据文件: {file_id}。请确认文件已上传到 uploads 目录。")
-            
-            # 3. 读取报表类型（从配置文件中）
-            raw_report_type = config_data.get("reportType", "稳定状态")
-            report_type = str(raw_report_type).strip()
-            report_type_lower = report_type.lower()
-            logger.info(f"[报表类型判断] 配置文件路径: {config_file_path}")
-            logger.info(f"[报表类型判断] 配置数据中的 reportType: {raw_report_type}")
-            logger.info(f"[报表类型判断] 最终使用的 report_type: {report_type}")
-            
-            # 4. 创建输出目录
-            import uuid
-            report_id = str(uuid.uuid4())
-            reports_dir = backend_dir / "reports"
-            reports_dir.mkdir(parents=True, exist_ok=True)
-            
-            sub_reports = None
-            # 5. 根据报表类型调用相应的计算模块生成报表
-            if report_type_lower in {"功能计算", "function_calc"}:
-                logger.info(f"[报表类型判断] 调用功能计算服务")
-                # 功能计算报表
-                report_file_path = reports_dir / f"functional_report-{report_id}.xlsx"
-                from backend.services.functional_service import FunctionalService
-                service = FunctionalService()
-                report_path = service.generate_report_simple(
-                    str(config_file_path),
-                    str(input_file_path),
-                    str(report_file_path)
-                )
-            elif report_type_lower in {"状态评估", "status_eval"}:
-                logger.info(f"[报表类型判断] 调用状态评估服务")
-                # 状态评估报表
-                report_file_path = reports_dir / f"status_evaluation_report-{report_id}.xlsx"
-                from backend.services.status_evaluation_service import StatusEvaluationService
-                service = StatusEvaluationService()
-                report_path = service.generate_report(
-                    str(config_file_path),
-                    str(input_file_path),
-                    str(report_file_path)
-                )
-            elif report_type_lower in {"完整报表", "完整分析报表", "complete", "complete_report"}:
-                logger.info(f"[报表类型判断] 调用完整报表生成流程")
-                from backend.services.steady_state_service import SteadyStateService
-                from backend.services.functional_service import FunctionalService
-                from backend.services.status_evaluation_service import StatusEvaluationService
-                from backend.services.combined_report_service import CombinedReportService
 
-                combined_service = CombinedReportService()
+            if not file_id:
+                raise ValueError("配置文件中缺少 fileId 信息，无法定位输入数据文件。")
 
-                combined_report_path = combined_service.generate_all_and_merge(
-                    str(config_file_path),
-                    str(config_file_path),
-                    str(config_file_path),
-                    str(input_file_path),
-                    str(reports_dir / f"combined_report-{report_id}.xlsx")
-                )
+            try:
+                ctx = materialize_uploaded_file(file_id)
+            except FileNotFoundError as exc:
+                raise ValueError(f"找不到输入数据文件: {file_id}。请确认文件已上传并保存在数据库中。") from exc
 
-                report_path = combined_report_path
-                report_type = "完整报表"
-                # 不再返回子报表下载信息，避免前端并行触发三张表的下载
-                sub_reports = None
-            else:
-                # 稳定状态报表（默认）
-                logger.info(f"[报表类型判断] 调用稳定状态服务 (report_type='{report_type}')")
-                report_file_path = reports_dir / f"steady_state_report-{report_id}.xlsx"
-                from backend.services.steady_state_service import SteadyStateService
-                service = SteadyStateService()
-                report_path = service.generate_report(
-                    str(config_file_path),
-                    str(input_file_path),
-                    str(report_file_path)
-                )
+            try:
+                with ctx as (input_file_path, file_metadata):
+                    logger.info(
+                        f"已从数据库读取输入数据文件: file_id={file_id}, "
+                        f"original_name={file_metadata.get('file_name')}, "
+                        f"category={file_metadata.get('category')}"
+                    )
+
+                    # 3. 读取报表类型（从配置文件中）
+                    raw_report_type = config_data.get("reportType", "稳定状态")
+                    report_type = str(raw_report_type).strip()
+                    report_type_lower = report_type.lower()
+                    logger.info(f"[报表类型判断] 配置文件路径: {config_file_path}")
+                    logger.info(f"[报表类型判断] 配置数据中的 reportType: {raw_report_type}")
+                    logger.info(f"[报表类型判断] 最终使用的 report_type: {report_type}")
+
+                    # 4. 创建输出目录（临时目录，生成后写入数据库）
+                    import uuid
+                    report_id = str(uuid.uuid4())
+                    sub_reports = None
+
+                    report_bytes: Optional[bytes] = None
+                    report_name: Optional[str] = None
+                    storage_backend = "filesystem"
+                    stored_report_path: Optional[Path] = None
+                    report_db_id: Optional[int] = None
+
+                    with tempfile.TemporaryDirectory(prefix="driatmp_report_") as tmp_dir:
+                        tmp_dir_path = Path(tmp_dir)
+
+                        # 5. 根据报表类型调用相应的计算模块生成报表
+                        if report_type_lower in {"功能计算", "function_calc"}:
+                            logger.info(f"[报表类型判断] 调用功能计算服务")
+                            report_name = f"functional_report-{report_id}.xlsx"
+                            report_file_path = tmp_dir_path / report_name
+                            from backend.services.functional_service import FunctionalService
+                            service = FunctionalService()
+                            report_path = Path(
+                                service.generate_report_simple(
+                                    str(config_file_path),
+                                    str(input_file_path),
+                                    str(report_file_path)
+                                )
+                            )
+                        elif report_type_lower in {"状态评估", "status_eval"}:
+                            logger.info(f"[报表类型判断] 调用状态评估服务")
+                            report_name = f"status_evaluation_report-{report_id}.xlsx"
+                            report_file_path = tmp_dir_path / report_name
+                            from backend.services.status_evaluation_service import StatusEvaluationService
+                            service = StatusEvaluationService()
+                            report_path = Path(
+                                service.generate_report(
+                                    str(config_file_path),
+                                    str(input_file_path),
+                                    str(report_file_path)
+                                )
+                            )
+                        elif report_type_lower in {"完整报表", "完整分析报表", "complete", "complete_report"}:
+                            logger.info(f"[报表类型判断] 调用完整报表生成流程")
+                            report_name = f"combined_report-{report_id}.xlsx"
+                            from backend.services.steady_state_service import SteadyStateService  # noqa: F401
+                            from backend.services.functional_service import FunctionalService  # noqa: F401
+                            from backend.services.status_evaluation_service import StatusEvaluationService  # noqa: F401
+                            from backend.services.combined_report_service import CombinedReportService
+
+                            combined_service = CombinedReportService()
+
+                            report_path = Path(
+                                combined_service.generate_all_and_merge(
+                                    str(config_file_path),
+                                    str(config_file_path),
+                                    str(config_file_path),
+                                    str(input_file_path),
+                                    str(tmp_dir_path / report_name)
+                                )
+                            )
+
+                            report_type = "完整报表"
+                            report_type_lower = report_type.lower()
+                            sub_reports = None
+                        else:
+                            # 稳定状态报表（默认）
+                            logger.info(f"[报表类型判断] 调用稳定状态服务 (report_type='{report_type}')")
+                            report_name = f"steady_state_report-{report_id}.xlsx"
+                            report_file_path = tmp_dir_path / report_name
+                            from backend.services.steady_state_service import SteadyStateService
+                            service = SteadyStateService()
+                            report_path = Path(
+                                service.generate_report(
+                                    str(config_file_path),
+                                    str(input_file_path),
+                                    str(report_file_path)
+                                )
+                            )
+
+                        if not report_name:
+                            raise ValueError("报表名称生成失败，请确认报表类型配置。")
+
+                        if not report_path.exists():
+                            raise ValueError(f"报表文件生成失败：{report_path}")
+
+                        report_bytes = report_path.read_bytes()
+                        report_db_id = save_report_file(
+                            file_id=file_id,
+                            report_name=report_name,
+                            content=report_bytes,
+                        )
+
+                        if report_db_id is not None:
+                            storage_backend = "database"
+                        else:
+                            backend_reports_dir = backend_dir / "reports"
+                            backend_reports_dir.mkdir(parents=True, exist_ok=True)
+                            final_path = backend_reports_dir / report_name
+                            shutil.move(str(report_path), str(final_path))
+                            stored_report_path = final_path
+                            storage_backend = "filesystem"
+
+                    response_report_path = (
+                        str(stored_report_path) if stored_report_path else report_name
+                    )
+            except FileNotFoundError as exc:
+                raise ValueError(f"找不到输入数据文件: {file_id}。请确认文件已上传并保存在数据库中。") from exc
             
             # 6. 若存在内存会话则删除，退出配置模式
             if session:
                 del report_config_manager.sessions[request.session_id]
             
-            logger.info(f"报表生成成功: {report_path}")
-            
+            logger.info(
+                f"报表生成成功: {response_report_path} (storage={storage_backend}, report_id={report_id})"
+            )
+
             response_config = {
                 "report_id": report_id, 
-                "report_path": report_path,
-                "report_type": report_type  # 添加报表类型信息
+                "report_path": response_report_path,
+                "report_type": report_type,  # 添加报表类型信息
+                "report_storage": storage_backend,
+                "report_name": report_name,
             }
+            if report_db_id is not None:
+                response_config["report_db_id"] = report_db_id
+            if stored_report_path is not None:
+                response_config["filesystem_path"] = str(stored_report_path)
+
             # 明确返回下载地址与文件名
             if report_type in {"完整报表", "完整分析报表"}:
                 # 合并报表
@@ -2016,9 +2063,14 @@ async def complete_config_dialogue(request: CompleteConfigRequest):
                     response_config["download_url"] = f"/api/reports/steady_state/{report_id}/download"
                     response_config["download_filename"] = f"steady_state_report-{report_id}.xlsx"
             
+            if storage_backend == "database":
+                message_detail = f"报表已保存至数据库，点击即可下载。"
+            else:
+                message_detail = f"报表已保存至服务器目录: {response_report_path}"
+
             return CompleteConfigResponse(
                 success=True,
-                message=f"报表生成成功！文件路径: {report_path}",
+                message=f"报表生成成功！{message_detail}",
                 config=response_config,
                 status="completed"
             )
