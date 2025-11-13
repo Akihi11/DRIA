@@ -1,6 +1,7 @@
 # Web Framework - Python 3.12 compatible
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
 
 # Data Processing - Python 3.12 compatible versions
 pandas>=2.1.0

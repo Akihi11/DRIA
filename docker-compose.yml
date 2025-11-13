@@ -1,0 +1,101 @@
+# docker-compose.yml
+
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dria-backend
+    ports:
+      - "8001:8000"  # 已改为 8001，避免与主项目冲突
+    env_file:
+      - .env.docker
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DEBUG=${DEBUG:-False}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # 连接到主项目的PostgreSQL
+      - DATABASE_URL=${DATABASE_URL}
+      # 连接到主项目的Ollama
+      - LOCAL_BASE_URL=${OLLAMA_URL:-http://poc-ollama:11434}  # ← 改为 poc-ollama
+      - LOCAL_MODEL=${OLLAMA_MODEL:-llama2}
+      - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-local}
+      # 其他LLM配置（如果需要）
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
+      - KIMI_API_KEY=${KIMI_API_KEY:-}
+      - KIMI_BASE_URL=${KIMI_BASE_URL:-https://api.moonshot.cn}
+      - KIMI_MODEL=${KIMI_MODEL:-moonshot-v1-8k}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4}
+      # 文件上传配置
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-104857600}
+      - ALLOWED_EXTENSIONS=${ALLOWED_EXTENSIONS:-.csv,.xlsx,.xls}
+    volumes:
+      - ./backend/uploads:/app/backend/uploads
+      - ./backend/reports:/app/backend/reports
+      - ./backend/config_sessions:/app/backend/config_sessions
+    networks:
+      - dria-network
+      - core-net  # ← 取消注释，连接到主项目网络
+    restart: unless-stopped
+    depends_on:
+      - backend-init
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  backend-init:
+    image: postgres:15-alpine
+    container_name: dria-backend-init
+    env_file:
+      - .env.docker
+    environment:
+      - PGHOST=${POSTGRES_HOST:-poc-pg}  # ← 改为 poc-pg
+      - PGPORT=${POSTGRES_PORT:-5432}
+      - PGDATABASE=${POSTGRES_DB:-unified_db}  # ← 改为 unified_db
+      - PGUSER=${POSTGRES_USER:-admin}  # ← 改为 admin
+      - PGPASSWORD=${POSTGRES_PASSWORD:-admin123}  # ← 改为 admin123
+    command: >
+      sh -c "
+        until pg_isready -h $${PGHOST} -p $${PGPORT} -U $${PGUSER}; do
+          echo 'Waiting for PostgreSQL...'
+          sleep 2
+        done
+        echo 'PostgreSQL is ready!'
+      "
+    networks:
+      - core-net  # ← 取消注释，连接到主项目网络
+    restart: "no"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: dria-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - dria-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  dria-network:
+    driver: bridge
+  core-net:  # ← 取消注释，连接到主项目的网络
+    external: true
+    name: dhcf-poc-fixed_core-net  # ← 替换为步骤1中找到的实际网络名称

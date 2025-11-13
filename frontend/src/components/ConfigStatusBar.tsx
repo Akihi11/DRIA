@@ -20,12 +20,10 @@ const ConfigStatusBar: React.FC<ConfigStatusBarProps> = (props) => {
   const {
     onCompleteConfig,
     onCancelConfig,
-    onConfigChange,
     isActive = false,
     reportType = '',
     currentState = '',
-    currentParams = {},
-    sessionId = ''
+    currentParams = {}
   } = props
   
   // 处理完成配置 - 直接调用父组件的回调

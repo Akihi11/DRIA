@@ -22,8 +22,8 @@ AI 报表生成与对话助手（FastAPI + React/Vite）。
     - `routes/`：各业务路由模块（文件上传、报表生成、会话配置、健康检查等）
   - `models/`：Pydantic 数据模型（请求/响应/内部传输对象）
   - `services/`：业务逻辑与报表生成实现（字段映射、过滤、分组聚合、模板装配、文件写出）
-  - `uploads/`：上传的源数据文件存放目录（CSV/Excel）
-  - `reports/`：生成的报表输出目录（可供下载/归档）
+  - `uploads/`：上传的源数据文件存放目录（CSV/Excel）现已存至 PostgreSQL。
+  - `reports/`：生成的报表输出目录（可供下载/归档）现已存至 PostgreSQL。
   - `config_sessions/`：对话确认后的配置快照与会话记录（便于复用与审计）
 
 - `frontend/`（前端 React + Vite 应用）

@@ -1,8 +1,8 @@
 import React from 'react'
-import { Card, Typography, Divider, Space } from 'antd'
+import { Card, Typography, Divider } from 'antd'
 import { FileTextOutlined, BarChartOutlined } from '@ant-design/icons'
 
-const { Text, Title } = Typography
+const { Text } = Typography
 
 interface ChannelData {
   channel_name: string

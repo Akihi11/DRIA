@@ -37,7 +37,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
     setDownloading(true)
     try {
       // 优先使用后端在 complete-config 中返回的标准下载信息
-      const currentParams = message.metadata?.currentParams || message.metadata?.config || {}
+      const currentParams = message.metadata?.currentParams || {}
       const preferredUrl = currentParams.download_url as string | undefined
       const preferredFilename = currentParams.download_filename as string | undefined
 

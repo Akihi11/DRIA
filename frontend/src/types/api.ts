@@ -23,6 +23,7 @@ export interface FileUploadResponse {
   file_id: string
   filename: string
   size: number
+  file_size?: number  // Optional field for component compatibility
   upload_time: string
   available_channels: string[]
 }

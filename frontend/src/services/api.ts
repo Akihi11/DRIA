@@ -74,11 +74,12 @@ class ApiService {
     
     // Convert backend response format to match FileInfo interface
     const data = response.data
+    const fileSize = data.file_size || data.size
     return {
       file_id: data.file_id,
       filename: data.filename,
-      size: data.file_size || data.size,  // Support both field names
-      file_size: data.file_size || data.size,  // Also include file_size for component compatibility
+      size: fileSize,
+      file_size: fileSize,  // Also include file_size for component compatibility
       upload_time: data.upload_time,
       available_channels: data.available_channels || []
     }
