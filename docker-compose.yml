@@ -20,7 +20,7 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       # 连接到主项目的Ollama
       - LOCAL_BASE_URL=${OLLAMA_URL:-http://poc-ollama:11434}  # ← 改为 poc-ollama
-      - LOCAL_MODEL=${OLLAMA_MODEL:-llama2}
+      - LOCAL_MODEL=${OLLAMA_MODEL:-qwen2.5:3b}
       - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-local}
       # 其他LLM配置（如果需要）
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}

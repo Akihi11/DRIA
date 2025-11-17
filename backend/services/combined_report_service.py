@@ -134,7 +134,7 @@ class CombinedReportService:
             next_row += 1
             return next_row
 
-        current_row = append_section("表1 稳定状态个动态参数汇总表", steady_tmp, current_row)
+        current_row = append_section("表1 稳定状态各动态参数汇总表", steady_tmp, current_row)
         current_row = append_section("表2 功能计算汇总表", functional_tmp, current_row)
         current_row = append_section("表3 状态评估表", status_eval_tmp, current_row)
 

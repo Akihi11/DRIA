@@ -136,7 +136,7 @@ OLLAMA_URL=http://main-ollama:11434
 OLLAMA_URL=http://host.docker.internal:11434
 
 # Ollama模型名称
-OLLAMA_MODEL=llama2
+OLLAMA_MODEL=qwen2.5:3b
 ```
 
 ## 网络连接配置
