@@ -88,8 +88,8 @@ export class AIService {
       console.error('Backend API call failed:', error)
       // 回退到简单的错误响应
       return {
-        content: '抱歉，AI服务暂时不可用。请稍后再试。',
-        suggestedActions: ['重试', '查看帮助']
+        content: '抱歉，AI服务暂时不可用。请查看配置是否正确。',
+        suggestedActions: []
       }
     }
   }

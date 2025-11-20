@@ -1,13 +1,16 @@
 import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
-import { Layout, Input, Button, Space, Spin } from 'antd'
+import { Layout, Input, Button, Space, Spin, Tooltip } from 'antd'
 import { 
   SendOutlined, 
-  RobotOutlined
+  RobotOutlined,
+  AudioOutlined,
+  StopOutlined
 } from '@ant-design/icons'
 import MessageBubble from './MessageBubble'
 import FileUploadButton from '../FileUpload/FileUploadButton'
 import { Message } from '../../types/store'
 import { DialogueState } from '../../types/api'
+import { useSpeechRecognition } from '../../hooks/useSpeechRecognition'
 import './ChatContainer.css'
 
 const { Content, Footer } = Layout
@@ -39,6 +42,62 @@ const ChatContainer = forwardRef<ChatContainerRef, ChatContainerProps>(({
 }, ref) => {
   const [inputValue, setInputValue] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  
+  // 保存录音开始前的输入值
+  const inputBeforeRecordingRef = useRef('')
+  
+  // 语音识别
+  const {
+    isSupported,
+    isListening,
+    transcript,
+    startListening,
+    stopListening,
+    error: speechError
+  } = useSpeechRecognition({
+    lang: 'zh-CN',
+    continuous: false,
+    interimResults: true,
+    onResult: (text, isFinal) => {
+      if (isFinal) {
+        // 最终结果：追加到录音前的输入值
+        const baseText = inputBeforeRecordingRef.current.trim()
+        const newValue = baseText 
+          ? `${baseText} ${text.trim()}` 
+          : text.trim()
+        setInputValue(newValue)
+        inputBeforeRecordingRef.current = newValue
+      } else {
+        // 临时结果：显示在输入框中（基于录音前的值 + 临时结果）
+        const baseText = inputBeforeRecordingRef.current.trim()
+        const displayValue = baseText 
+          ? `${baseText} ${text.trim()}` 
+          : text.trim()
+        setInputValue(displayValue)
+      }
+    },
+    onError: (error) => {
+      onError(error)
+    }
+  })
+
+  // 当停止录音时，更新基础值（用于下次录音）
+  useEffect(() => {
+    if (!isListening && transcript) {
+      // 录音结束后，将最终结果保存为基础值
+      const finalValue = inputValue.trim()
+      if (finalValue) {
+        inputBeforeRecordingRef.current = finalValue
+      }
+    }
+  }, [isListening, transcript, inputValue])
+
+  // 处理语音识别错误
+  useEffect(() => {
+    if (speechError) {
+      onError(speechError)
+    }
+  }, [speechError, onError])
 
   // Auto scroll to bottom when new messages arrive
   useEffect(() => {
@@ -57,9 +116,24 @@ const ChatContainer = forwardRef<ChatContainerRef, ChatContainerProps>(({
   const handleSendMessage = () => {
     if (!inputValue.trim()) return
     
+    // 如果正在录音，先停止
+    if (isListening) {
+      stopListening()
+    }
+    
     const content = inputValue.trim()
     setInputValue('')
     onSendMessage(content)
+  }
+
+  const handleToggleVoiceInput = () => {
+    if (isListening) {
+      stopListening()
+    } else {
+      // 开始录音前，保存当前输入值
+      inputBeforeRecordingRef.current = inputValue
+      startListening()
+    }
   }
 
   const handleFileUploaded = (fileInfo: any) => {
@@ -123,25 +197,43 @@ const ChatContainer = forwardRef<ChatContainerRef, ChatContainerProps>(({
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder={getPlaceholder()}
-                disabled={isInputDisabled}
+                disabled={isInputDisabled || isListening}
                 autoSize={{ minRows: 1, maxRows: 4 }}
                 style={{ flex: 1 }}
               />
+              {isSupported && (
+                <Tooltip title={isListening ? '点击停止录音' : '点击开始语音输入'}>
+                  <Button
+                    type={isListening ? 'primary' : 'default'}
+                    danger={isListening}
+                    icon={isListening ? <StopOutlined /> : <AudioOutlined />}
+                    onClick={handleToggleVoiceInput}
+                    disabled={isInputDisabled}
+                    className={isListening ? 'voice-button-recording' : 'voice-button'}
+                  />
+                </Tooltip>
+              )}
               <FileUploadButton
                 onFileUploaded={handleFileUploaded}
                 onUploadError={handleFileUploadError}
-                disabled={isInputDisabled}
+                disabled={isInputDisabled || isListening}
               />
               <Button
                 type="primary"
                 icon={<SendOutlined />}
                 onClick={handleSendMessage}
-                disabled={!inputValue.trim() || isInputDisabled}
+                disabled={!inputValue.trim() || isInputDisabled || isListening}
               >
                 发送
               </Button>
             </Space.Compact>
           </div>
+          {isListening && (
+            <div className="voice-recording-indicator">
+              <span className="recording-dot"></span>
+              <span>正在录音中...</span>
+            </div>
+          )}
         </div>
       </Footer>
     </Layout>

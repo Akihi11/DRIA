@@ -73,7 +73,7 @@ class Settings:
         # Local Model Configuration (如Ollama)
         self.LOCAL_API_KEY: str = os.getenv("LOCAL_API_KEY", "")
         self.LOCAL_BASE_URL: str = os.getenv("LOCAL_BASE_URL", "http://localhost:11434")
-        self.LOCAL_MODEL: str = os.getenv("LOCAL_MODEL", "llama2")
+        self.LOCAL_MODEL: str = os.getenv("LOCAL_MODEL")
         
         # QWEN API Configuration
         self.QWEN_API_KEY: str = os.getenv("QWEN_API_KEY", "")
