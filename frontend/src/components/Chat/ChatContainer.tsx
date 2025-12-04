@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react'
+import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { Layout, Input, Button, Space, Spin, Tooltip } from 'antd'
 import { 
   SendOutlined, 
@@ -46,33 +46,6 @@ const ChatContainer = forwardRef<ChatContainerRef, ChatContainerProps>(({
   // 保存录音开始前的输入值
   const inputBeforeRecordingRef = useRef('')
   
-  const latestErrorHandlerRef = useRef(onError)
-
-  useEffect(() => {
-    latestErrorHandlerRef.current = onError
-  }, [onError])
-
-  const handleSpeechResult = useCallback((text: string, isFinal: boolean) => {
-    if (isFinal) {
-      const baseText = inputBeforeRecordingRef.current.trim()
-      const newValue = baseText 
-        ? `${baseText} ${text.trim()}` 
-        : text.trim()
-      setInputValue(newValue)
-      inputBeforeRecordingRef.current = newValue
-    } else {
-      const baseText = inputBeforeRecordingRef.current.trim()
-      const displayValue = baseText 
-        ? `${baseText} ${text.trim()}` 
-        : text.trim()
-      setInputValue(displayValue)
-    }
-  }, [])
-
-  const handleSpeechError = useCallback((error: string) => {
-    latestErrorHandlerRef.current?.(error)
-  }, [])
-
   // 语音识别
   const {
     isSupported,
@@ -85,8 +58,27 @@ const ChatContainer = forwardRef<ChatContainerRef, ChatContainerProps>(({
     lang: 'zh-CN',
     continuous: false,
     interimResults: true,
-    onResult: handleSpeechResult,
-    onError: handleSpeechError
+    onResult: (text, isFinal) => {
+      if (isFinal) {
+        // 最终结果：追加到录音前的输入值
+        const baseText = inputBeforeRecordingRef.current.trim()
+        const newValue = baseText 
+          ? `${baseText} ${text.trim()}` 
+          : text.trim()
+        setInputValue(newValue)
+        inputBeforeRecordingRef.current = newValue
+      } else {
+        // 临时结果：显示在输入框中（基于录音前的值 + 临时结果）
+        const baseText = inputBeforeRecordingRef.current.trim()
+        const displayValue = baseText 
+          ? `${baseText} ${text.trim()}` 
+          : text.trim()
+        setInputValue(displayValue)
+      }
+    },
+    onError: (error) => {
+      onError(error)
+    }
   })
 
   // 当停止录音时，更新基础值（用于下次录音）
@@ -99,13 +91,6 @@ const ChatContainer = forwardRef<ChatContainerRef, ChatContainerProps>(({
       }
     }
   }, [isListening, transcript, inputValue])
-
-  // 处理语音识别错误
-  useEffect(() => {
-    if (speechError) {
-      latestErrorHandlerRef.current?.(speechError)
-    }
-  }, [speechError])
 
   // Auto scroll to bottom when new messages arrive
   useEffect(() => {

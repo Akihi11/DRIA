@@ -72,6 +72,7 @@ export const useSpeechRecognition = (
   const onResultRef = useRef<typeof onResult>()
   const onErrorRef = useRef<typeof onError>()
 
+  // 始终保存最新的回调，避免因为依赖变化反复重建识别实例
   useEffect(() => {
     onResultRef.current = onResult
   }, [onResult])
@@ -156,6 +157,7 @@ export const useSpeechRecognition = (
         }
       }
     }
+  // 注意：不把 onResult / onError 放到依赖中，防止重复创建实例
   }, [lang, continuous, interimResults])
 
   const startListening = useCallback(() => {
