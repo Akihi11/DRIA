@@ -69,6 +69,16 @@ export const useSpeechRecognition = (
   
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const finalTranscriptRef = useRef('')
+  const onResultRef = useRef<typeof onResult>()
+  const onErrorRef = useRef<typeof onError>()
+
+  useEffect(() => {
+    onResultRef.current = onResult
+  }, [onResult])
+
+  useEffect(() => {
+    onErrorRef.current = onError
+  }, [onError])
 
   // 初始化 SpeechRecognition
   useEffect(() => {
@@ -101,11 +111,11 @@ export const useSpeechRecognition = (
       if (finalTranscript) {
         finalTranscriptRef.current += finalTranscript
         setTranscript(finalTranscriptRef.current)
-        onResult?.(finalTranscriptRef.current, true)
+        onResultRef.current?.(finalTranscriptRef.current, true)
       } else if (interimTranscript) {
         const fullTranscript = finalTranscriptRef.current + interimTranscript
         setTranscript(fullTranscript)
-        onResult?.(fullTranscript, false)
+        onResultRef.current?.(fullTranscript, false)
       }
     }
 
@@ -121,7 +131,7 @@ export const useSpeechRecognition = (
       
       setError(errorMessage)
       setIsListening(false)
-      onError?.(errorMessage)
+      onErrorRef.current?.(errorMessage)
     }
 
     // 处理识别结束
@@ -146,7 +156,7 @@ export const useSpeechRecognition = (
         }
       }
     }
-  }, [lang, continuous, interimResults, onResult, onError])
+  }, [lang, continuous, interimResults])
 
   const startListening = useCallback(() => {
     if (!recognitionRef.current) {
