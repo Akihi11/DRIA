@@ -121,6 +121,12 @@ class LLMClient:
                     "content": msg.content
                 })
             
+            # DashScope 要求非流式调用必须显式关闭 enable_thinking；流式可根据需要开启
+            is_stream = kwargs.get("stream", False)
+            enable_thinking = kwargs.get("enable_thinking")
+            if enable_thinking is None:
+                enable_thinking = True if is_stream else False
+
             base_data = {
                 "model": self.config.model_name,
                 "input": {
@@ -129,6 +135,7 @@ class LLMClient:
                 "parameters": {
                     "temperature": kwargs.get("temperature", self.config.temperature),
                     "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
+                    "enable_thinking": enable_thinking,
                 }
             }
             
