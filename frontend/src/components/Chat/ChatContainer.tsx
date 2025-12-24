@@ -53,7 +53,7 @@ const ChatContainer = forwardRef<ChatContainerRef, ChatContainerProps>(({
     transcript,
     startListening,
     stopListening,
-    error: speechError
+    // error: speechError
   } = useSpeechRecognition({
     lang: 'zh-CN',
     continuous: false,

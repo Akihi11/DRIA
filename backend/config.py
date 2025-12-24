@@ -223,7 +223,7 @@ class Settings:
                 base_url=self.LOCAL_BASE_URL,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                timeout=30.0
+                timeout=60.0
             )
 
 # Global settings instance

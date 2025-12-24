@@ -14,7 +14,7 @@ class ApiService {
   constructor() {
     this.client = axios.create({
       baseURL: '/api',
-      timeout: 60000, // 60 seconds for report generation
+      timeout: 300000, // 60 seconds for report generation
       headers: {
         'Content-Type': 'application/json',
       },
